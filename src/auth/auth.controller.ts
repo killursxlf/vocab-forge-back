@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { LoginDto } from '../auth/dto/login.dto';
 import { AuthService } from './auth.service';
@@ -21,13 +30,13 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException('Неверные учетные данные');
     }
-    
+
     const { access_token } = await this.authService.login(user);
 
     response.cookie('access_token', access_token, {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax', // 'lax' - лучший вариант для этого случая
+      secure: true,
+      sameSite: 'none',
       path: '/',
       expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
     });
@@ -35,7 +44,7 @@ export class AuthController {
     return user;
   }
 
-  @UseGuards(JwtAuthGuard) 
+  @UseGuards(JwtAuthGuard)
   @Get('profile')
   getProfile(@Req() req: RequestWithUser) {
     return req.user;
