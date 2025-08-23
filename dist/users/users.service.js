@@ -62,6 +62,7 @@ let UsersService = class UsersService {
         const hashedPassword = await bcrypt.hash(createUserDto.password, saltRounds);
         const user = await this.prisma.user.create({
             data: {
+                name: createUserDto.name,
                 email: createUserDto.email,
                 password: hashedPassword,
             },
@@ -74,17 +75,59 @@ let UsersService = class UsersService {
             where: { email },
         });
     }
+    async findOneById(id) {
+        const user = await this.prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            throw new common_1.NotFoundException(`Пользователь с ID ${id} не найден`);
+        }
+        const { password, ...result } = user;
+        return result;
+    }
+    async update(id, updateUserDto) {
+        if (updateUserDto.email) {
+            const existingUser = await this.prisma.user.findUnique({
+                where: { email: updateUserDto.email },
+            });
+            if (existingUser && existingUser.id !== id) {
+                throw new common_1.ConflictException('Этот email уже используется');
+            }
+        }
+        const user = await this.prisma.user.update({
+            where: { id },
+            data: updateUserDto,
+        });
+        const { password, ...result } = user;
+        return result;
+    }
+    async changePassword(id, currentPass, newPass) {
+        const user = await this.prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            throw new common_1.NotFoundException('Пользователь не найден');
+        }
+        if (!user.password) {
+            throw new common_1.BadRequestException('Вы зарегистрировались через социальные сети и еще не установили пароль.');
+        }
+        const isPasswordMatch = await bcrypt.compare(currentPass, user.password);
+        if (!isPasswordMatch) {
+            throw new common_1.UnauthorizedException('Неверный текущий пароль');
+        }
+        const saltRounds = 10;
+        const hashedNewPassword = await bcrypt.hash(newPass, saltRounds);
+        await this.prisma.user.update({
+            where: { id },
+            data: { password: hashedNewPassword },
+        });
+        return { message: 'Пароль успешно изменен' };
+    }
     findAll() {
-        return `This action returns all users`;
+        return this.prisma.user.findMany({
+            select: { id: true, email: true, name: true, createdAt: true },
+        });
     }
-    findOne(id) {
-        return `This action returns a #${id} user`;
-    }
-    update(id, updateUserDto) {
-        return `This action updates a #${id} user`;
-    }
-    remove(id) {
-        return `This action removes a #${id} user`;
+    async remove(id) {
+        await this.findOneById(id);
+        await this.prisma.user.delete({ where: { id } });
+        return { message: `Пользователь с ID ${id} успешно удален` };
     }
 };
 exports.UsersService = UsersService;

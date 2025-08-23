@@ -56,20 +56,20 @@ export declare class CardSettingsController {
     getTrainingCards(req: AuthenticatedRequest): Promise<({
         customFields: null;
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         wordSetId: number;
     } | {
         customFields: {
             [x: string]: any;
         };
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         wordSetId: number;
     })[]>;
 }

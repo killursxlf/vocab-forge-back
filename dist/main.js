@@ -14,7 +14,7 @@ async function bootstrap() {
     app.enableCors({
         origin: [
             'http://localhost:8080',
-            'http://my-dev-app.com:8080',
+            'https://vocab-forge-front.vercel.app',
             'http://192.168.178.60:8080',
         ],
         credentials: true,

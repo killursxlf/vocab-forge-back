@@ -7,29 +7,29 @@ export declare class WordsService {
     private checkWordSetOwnership;
     create(createWordDto: CreateWordDto, wordSetId: number, userId: number): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
-        createdAt: Date;
         wordSetId: number;
     }>;
     update(wordId: number, updateWordDto: UpdateWordDto, userId: number): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
-        createdAt: Date;
         wordSetId: number;
     }>;
     remove(wordId: number, userId: number): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
-        createdAt: Date;
         wordSetId: number;
     }>;
 }

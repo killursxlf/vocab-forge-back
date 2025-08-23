@@ -6,17 +6,47 @@ export declare class UsersService {
     constructor(prisma: PrismaService);
     create(createUserDto: CreateUserDto): Promise<{
         email: string;
-        id: number;
+        name: string | null;
         googleId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        id: number;
     }>;
     findOneByEmail(email: string): Promise<{
         email: string;
+        name: string | null;
         password: string | null;
-        id: number;
         googleId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        id: number;
     } | null>;
-    findAll(): string;
-    findOne(id: number): string;
-    update(id: number, updateUserDto: UpdateUserDto): string;
-    remove(id: number): string;
+    findOneById(id: number): Promise<{
+        email: string;
+        name: string | null;
+        googleId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        id: number;
+    }>;
+    update(id: number, updateUserDto: UpdateUserDto): Promise<{
+        email: string;
+        name: string | null;
+        googleId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        id: number;
+    }>;
+    changePassword(id: number, currentPass: string, newPass: string): Promise<{
+        message: string;
+    }>;
+    findAll(): import("@prisma/client").Prisma.PrismaPromise<{
+        email: string;
+        name: string | null;
+        createdAt: Date;
+        id: number;
+    }[]>;
+    remove(id: number): Promise<{
+        message: string;
+    }>;
 }

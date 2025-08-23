@@ -23,22 +23,31 @@ let AuthController = class AuthController {
         this.authService = authService;
     }
     async login(loginDto, response) {
-        const user = await this.authService.validateUser(loginDto.email, loginDto.password);
-        if (!user) {
+        const userWithoutPassword = await this.authService.validateUser(loginDto.email, loginDto.password);
+        if (!userWithoutPassword) {
             throw new common_1.UnauthorizedException('Неверные учетные данные');
         }
-        const { access_token } = await this.authService.login(user);
+        const access_token = this.authService.login(userWithoutPassword).access_token;
         response.cookie('access_token', access_token, {
             httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
+            secure: true,
+            sameSite: 'none',
             path: '/',
             expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
         });
-        return user;
+        return userWithoutPassword;
     }
     getProfile(req) {
         return req.user;
+    }
+    logout(response) {
+        response.clearCookie('access_token', {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'none',
+            path: '/',
+        });
+        return { message: 'Вы успешно вышли из системы' };
     }
 };
 exports.AuthController = AuthController;
@@ -56,8 +65,16 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Object)
 ], AuthController.prototype, "getProfile", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('logout'),
+    __param(0, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "logout", null);
 exports.AuthController = AuthController = __decorate([
     (0, common_1.Controller)('auth'),
     __metadata("design:paramtypes", [auth_service_1.AuthService])

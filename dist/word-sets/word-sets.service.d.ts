@@ -20,11 +20,11 @@ export declare class WordSetsService {
     findOne(id: number, userId: number, offset?: number, limit?: number, search?: string, status?: string): Promise<{
         words: {
             id: number;
+            createdAt: Date;
             original: string;
             translation: string;
             status: import("@prisma/client").$Enums.WordStatus;
             customFields: Prisma.JsonValue | null;
-            createdAt: Date;
             wordSetId: number;
         }[];
         total: number;

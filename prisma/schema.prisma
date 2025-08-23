@@ -15,10 +15,13 @@ datasource db {
 model User {
   id        Int       @id @default(autoincrement())
   email     String    @unique
+  name      String?
   password  String?
   googleId  String?   @unique
   wordSets  WordSet[]
   cardSettings CardSettings?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model WordSet {

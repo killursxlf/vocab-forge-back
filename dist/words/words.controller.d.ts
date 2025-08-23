@@ -9,8 +9,8 @@ export declare class WordsController {
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        customFields: import("@prisma/client/runtime/library").JsonValue | null;
         createdAt: Date;
+        customFields: import("@prisma/client/runtime/library").JsonValue | null;
         wordSetId: number;
     }>;
     remove(id: number, req: RequestWithUser): Promise<{
@@ -18,8 +18,8 @@ export declare class WordsController {
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        customFields: import("@prisma/client/runtime/library").JsonValue | null;
         createdAt: Date;
+        customFields: import("@prisma/client/runtime/library").JsonValue | null;
         wordSetId: number;
     }>;
 }

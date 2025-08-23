@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 import { Strategy } from 'passport-jwt';
+import type { User } from './interfaces/user.interface';
 
 const cookieExtractor = (req: Request): string | null => {
   if (req && req.cookies) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return req.cookies['access_token'];
   }
   return null;
@@ -26,7 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: number; email: string }) {
+  validate(payload: { sub: number; email: string }): Omit<User, 'password'> {
     return { userId: payload.sub, email: payload.email };
   }
 }

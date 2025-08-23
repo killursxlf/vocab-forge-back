@@ -8,26 +8,26 @@ export declare class CardSettingsService {
             name: string;
         }[];
         id: string;
-        userId: number;
         createdAt: Date;
+        updatedAt: Date;
+        userId: number;
         frontKey: string;
         backKey: string;
         selectedStatuses: string[];
         selectedTables: string[];
         hintKey: string | null;
-        updatedAt: Date;
     }>;
     private findCommonColumns;
     updateSettings(userId: number, updateData: any): Promise<{
         id: string;
-        userId: number;
         createdAt: Date;
+        updatedAt: Date;
+        userId: number;
         frontKey: string;
         backKey: string;
         selectedStatuses: string[];
         selectedTables: string[];
         hintKey: string | null;
-        updatedAt: Date;
     }>;
     countWords(userId: number, filters: {
         frontKey: string;
@@ -39,20 +39,20 @@ export declare class CardSettingsService {
     getTrainingCards(userId: number): Promise<({
         customFields: null;
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         wordSetId: number;
     } | {
         customFields: {
             [x: string]: any;
         };
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         wordSetId: number;
     })[]>;
 }
