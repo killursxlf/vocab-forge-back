@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -11,7 +12,15 @@ import { CardSettingsController } from './card-settings/card-settings.controller
 import { CardSettingsModule } from './card-settings/card-settings.module';
 
 @Module({
-  imports: [AuthModule, UsersModule, WordSetsModule, WordsModule, PrismaModule, CardSettingsModule],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }), // <-- подключаем ConfigModule
+    AuthModule,
+    UsersModule,
+    WordSetsModule,
+    WordsModule,
+    PrismaModule,
+    CardSettingsModule,
+  ],
   controllers: [AppController, CardSettingsController],
   providers: [AppService, CardSettingsService],
 })

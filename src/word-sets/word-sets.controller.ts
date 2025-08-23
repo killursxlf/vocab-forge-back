@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+  Query,
+} from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import type { RequestWithUser } from '../auth/interfaces/request-with-user.interface';
 import { CreateWordSetDto } from './dto/create-word-set.dto';
@@ -7,13 +19,12 @@ import { WordSetsService } from './word-sets.service';
 import { WordsService } from 'src/words/words.service';
 import { CreateWordDto } from 'src/words/dto/create-word.dto';
 
-
 @Controller('word-sets')
-@UseGuards(JwtAuthGuard) 
+@UseGuards(JwtAuthGuard)
 export class WordSetsController {
   constructor(
     private readonly wordSetsService: WordSetsService,
-    private readonly wordsService: WordsService, 
+    private readonly wordsService: WordsService,
   ) {}
 
   @Post(':id/words')
@@ -27,7 +38,10 @@ export class WordSetsController {
   }
 
   @Post()
-  create(@Body() createWordSetDto: CreateWordSetDto, @Req() req: RequestWithUser) {
+  create(
+    @Body() createWordSetDto: CreateWordSetDto,
+    @Req() req: RequestWithUser,
+  ) {
     return this.wordSetsService.create(createWordSetDto, req.user.userId);
   }
 
@@ -37,8 +51,22 @@ export class WordSetsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
-    return this.wordSetsService.findOne(id, req.user.userId);
+  async getWordSet(
+    @Param('id') id: string,
+    @Query('offset') offset: string = '0',
+    @Query('limit') limit: string = '100',
+    @Req() req,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.wordSetsService.findOne(
+      Number(id),
+      req.user.userId,
+      Number(offset),
+      Number(limit),
+      search,
+      status,
+    );
   }
 
   @Patch(':id')
