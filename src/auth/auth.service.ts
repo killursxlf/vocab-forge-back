@@ -32,7 +32,6 @@ export class AuthService {
 
       const result: Omit<User, 'password'> = {
         userId: id,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         name: name ?? undefined,
         ...rest,
       };
@@ -48,5 +47,41 @@ export class AuthService {
     return {
       access_token: this.jwtService.sign(payload),
     };
+  }
+
+  async validateGoogleUser(googleProfile: {
+    googleId: string;
+    email: string;
+    name: string;
+  }) {
+    let user = await this.usersService.findOneByGoogleId(
+      googleProfile.googleId,
+    );
+
+    if (!user) {
+      user = await this.usersService.findOneByEmail(googleProfile.email);
+
+      if (user) {
+        user = await this.usersService.updateGoogleId(
+          user.id,
+          googleProfile.googleId,
+        );
+      } else {
+        user = await this.usersService.createWithGoogle({
+          email: googleProfile.email,
+          name: googleProfile.name,
+          googleId: googleProfile.googleId,
+        });
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, id, ...rest } = user;
+    const userWithoutPassword = {
+      userId: id,
+      ...rest,
+    };
+
+    return userWithoutPassword;
   }
 }

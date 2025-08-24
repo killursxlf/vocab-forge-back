@@ -11,4 +11,6 @@ export declare class AuthController {
     logout(response: Response): {
         message: string;
     };
+    googleLogin(): void;
+    googleCallback(req: RequestWithUser, response: Response): Response<any, Record<string, any>>;
 }

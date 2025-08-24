@@ -10,5 +10,17 @@ export declare class AuthService {
     constructor(usersService: UsersService, jwtService: JwtService);
     validateUser(email: string, pass: string): Promise<Omit<User, 'password'> | null>;
     login(user: Omit<User, 'password'>): LoginResponse;
+    validateGoogleUser(googleProfile: {
+        googleId: string;
+        email: string;
+        name: string;
+    }): Promise<{
+        name: string | null;
+        email: string;
+        googleId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: number;
+    }>;
 }
 export {};

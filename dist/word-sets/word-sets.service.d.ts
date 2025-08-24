@@ -7,15 +7,15 @@ export declare class WordSetsService {
     constructor(prisma: PrismaService);
     create(createWordSetDto: CreateWordSetDto, userId: number): Prisma.Prisma__WordSetClient<{
         id: number;
+        userId: number;
         title: string;
         customColumns: Prisma.JsonValue;
-        userId: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     findAll(userId: number): Prisma.PrismaPromise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: Prisma.JsonValue;
-        userId: number;
     }[]>;
     findOne(id: number, userId: number, offset?: number, limit?: number, search?: string, status?: string): Promise<{
         words: {
@@ -30,20 +30,20 @@ export declare class WordSetsService {
         total: number;
         hasMore: boolean;
         id: number;
+        userId: number;
         title: string;
         customColumns: Prisma.JsonValue;
-        userId: number;
     }>;
     update(id: number, updateWordSetDto: UpdateWordSetDto, userId: number): Promise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: Prisma.JsonValue;
-        userId: number;
     }>;
     remove(id: number, userId: number): Promise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: Prisma.JsonValue;
-        userId: number;
     }>;
 }

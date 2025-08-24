@@ -15,26 +15,26 @@ export declare class UsersController {
     create(createUserDto: CreateUserDto): Promise<{
         email: string;
         name: string | null;
+        id: number;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;
-        id: number;
     }>;
     getProfile(req: RequestWithUser): Promise<{
         email: string;
         name: string | null;
+        id: number;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;
-        id: number;
     }>;
     updateProfile(req: RequestWithUser, updateUserDto: UpdateUserDto): Promise<{
         email: string;
         name: string | null;
+        id: number;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;
-        id: number;
     }>;
     changePassword(req: RequestWithUser, changePasswordDto: ChangePasswordDto): Promise<{
         message: string;
@@ -42,24 +42,24 @@ export declare class UsersController {
     findAll(): import("@prisma/client").Prisma.PrismaPromise<{
         email: string;
         name: string | null;
-        createdAt: Date;
         id: number;
+        createdAt: Date;
     }[]>;
     findOne(id: string): Promise<{
         email: string;
         name: string | null;
+        id: number;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;
-        id: number;
     }>;
     update(id: string, updateUserDto: UpdateUserDto): Promise<{
         email: string;
         name: string | null;
+        id: number;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;
-        id: number;
     }>;
     remove(id: string): Promise<{
         message: string;

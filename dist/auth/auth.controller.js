@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const login_dto_1 = require("../auth/dto/login.dto");
 const auth_service_1 = require("./auth.service");
 const jwt_auth_guard_1 = require("./jwt-auth.guard");
+const google_oauth_guard_1 = require("./google-oauth.guard");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
@@ -49,6 +50,32 @@ let AuthController = class AuthController {
         });
         return { message: 'Вы успешно вышли из системы' };
     }
+    googleLogin() {
+    }
+    googleCallback(req, response) {
+        try {
+            const user = req.user;
+            const { access_token } = this.authService.login(user);
+            response.cookie('access_token', access_token, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'none',
+                path: '/',
+                expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
+            });
+            const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+            return response.send(`
+        <script>
+          window.opener.postMessage('google-auth-success', '${FRONTEND_URL}');
+          window.close();
+        </script>
+      `);
+        }
+        catch (err) {
+            console.error(err);
+            throw new common_1.UnauthorizedException('Ошибка авторизации через Google');
+        }
+    }
 };
 exports.AuthController = AuthController;
 __decorate([
@@ -75,6 +102,22 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "logout", null);
+__decorate([
+    (0, common_1.Get)('google'),
+    (0, common_1.UseGuards)(google_oauth_guard_1.GoogleOAuthGuard),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "googleLogin", null);
+__decorate([
+    (0, common_1.Get)('google/callback'),
+    (0, common_1.UseGuards)(google_oauth_guard_1.GoogleOAuthGuard),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "googleCallback", null);
 exports.AuthController = AuthController = __decorate([
     (0, common_1.Controller)('auth'),
     __metadata("design:paramtypes", [auth_service_1.AuthService])

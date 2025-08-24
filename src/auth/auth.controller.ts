@@ -14,6 +14,7 @@ import { AuthService } from './auth.service';
 import type { RequestWithUser } from './interfaces/request-with-user.interface';
 import type { User } from './interfaces/user.interface';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { GoogleOAuthGuard } from './google-oauth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -64,5 +65,40 @@ export class AuthController {
     });
 
     return { message: 'Вы успешно вышли из системы' };
+  }
+
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  googleLogin() {
+    // просто редирект на Google
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  googleCallback(@Req() req: RequestWithUser, @Res() response: Response) {
+    try {
+      const user = req.user as Omit<User, 'password'>;
+
+      const { access_token } = this.authService.login(user);
+
+      response.cookie('access_token', access_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        path: '/',
+        expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      });
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+
+      return response.send(`
+        <script>
+          window.opener.postMessage('google-auth-success', '${FRONTEND_URL}');
+          window.close();
+        </script>
+      `);
+    } catch (err) {
+      console.error(err);
+      throw new UnauthorizedException('Ошибка авторизации через Google');
+    }
   }
 }

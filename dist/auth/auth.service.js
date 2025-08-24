@@ -73,6 +73,28 @@ let AuthService = class AuthService {
             access_token: this.jwtService.sign(payload),
         };
     }
+    async validateGoogleUser(googleProfile) {
+        let user = await this.usersService.findOneByGoogleId(googleProfile.googleId);
+        if (!user) {
+            user = await this.usersService.findOneByEmail(googleProfile.email);
+            if (user) {
+                user = await this.usersService.updateGoogleId(user.id, googleProfile.googleId);
+            }
+            else {
+                user = await this.usersService.createWithGoogle({
+                    email: googleProfile.email,
+                    name: googleProfile.name,
+                    googleId: googleProfile.googleId,
+                });
+            }
+        }
+        const { password, id, ...rest } = user;
+        const userWithoutPassword = {
+            userId: id,
+            ...rest,
+        };
+        return userWithoutPassword;
+    }
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([

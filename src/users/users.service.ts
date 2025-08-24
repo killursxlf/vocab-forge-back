@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import type { User } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -119,5 +120,32 @@ export class UsersService {
     await this.findOneById(id);
     await this.prisma.user.delete({ where: { id } });
     return { message: `Пользователь с ID ${id} успешно удален` };
+  }
+
+  async findOneByGoogleId(googleId: string): Promise<User | null> {
+    return this.prisma.user.findUnique({
+      where: { googleId },
+    });
+  }
+
+  async updateGoogleId(userId: number, googleId: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { googleId },
+    });
+  }
+
+  async createWithGoogle(data: {
+    email: string;
+    name: string;
+    googleId: string;
+  }): Promise<User> {
+    return this.prisma.user.create({
+      data: {
+        email: data.email,
+        name: data.name,
+        googleId: data.googleId,
+      },
+    });
   }
 }

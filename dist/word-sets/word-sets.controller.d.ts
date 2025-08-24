@@ -10,52 +10,52 @@ export declare class WordSetsController {
     constructor(wordSetsService: WordSetsService, wordsService: WordsService);
     addWord(id: number, createWordDto: CreateWordDto, req: RequestWithUser): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
         wordSetId: number;
     }>;
     create(createWordSetDto: CreateWordSetDto, req: RequestWithUser): import("@prisma/client").Prisma.Prisma__WordSetClient<{
         id: number;
+        userId: number;
         title: string;
         customColumns: import("@prisma/client/runtime/library").JsonValue;
-        userId: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findAll(req: RequestWithUser): import("@prisma/client").Prisma.PrismaPromise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: import("@prisma/client/runtime/library").JsonValue;
-        userId: number;
     }[]>;
     getWordSet(id: string, offset: string | undefined, limit: string | undefined, req: any, search?: string, status?: string): Promise<{
         words: {
             id: number;
+            createdAt: Date;
             original: string;
             translation: string;
             status: import("@prisma/client").$Enums.WordStatus;
-            createdAt: Date;
             customFields: import("@prisma/client/runtime/library").JsonValue | null;
             wordSetId: number;
         }[];
         total: number;
         hasMore: boolean;
         id: number;
+        userId: number;
         title: string;
         customColumns: import("@prisma/client/runtime/library").JsonValue;
-        userId: number;
     }>;
     update(id: number, updateWordSetDto: UpdateWordSetDto, req: RequestWithUser): Promise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: import("@prisma/client/runtime/library").JsonValue;
-        userId: number;
     }>;
     remove(id: number, req: RequestWithUser): Promise<{
         id: number;
+        userId: number;
         title: string;
         customColumns: import("@prisma/client/runtime/library").JsonValue;
-        userId: number;
     }>;
 }

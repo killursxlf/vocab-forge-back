@@ -129,6 +129,26 @@ let UsersService = class UsersService {
         await this.prisma.user.delete({ where: { id } });
         return { message: `Пользователь с ID ${id} успешно удален` };
     }
+    async findOneByGoogleId(googleId) {
+        return this.prisma.user.findUnique({
+            where: { googleId },
+        });
+    }
+    async updateGoogleId(userId, googleId) {
+        return this.prisma.user.update({
+            where: { id: userId },
+            data: { googleId },
+        });
+    }
+    async createWithGoogle(data) {
+        return this.prisma.user.create({
+            data: {
+                email: data.email,
+                name: data.name,
+                googleId: data.googleId,
+            },
+        });
+    }
 };
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([

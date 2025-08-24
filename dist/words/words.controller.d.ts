@@ -6,19 +6,19 @@ export declare class WordsController {
     constructor(wordsService: WordsService);
     update(id: number, updateWordDto: UpdateWordDto, req: RequestWithUser): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
         wordSetId: number;
     }>;
     remove(id: number, req: RequestWithUser): Promise<{
         id: number;
+        createdAt: Date;
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
-        createdAt: Date;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
         wordSetId: number;
     }>;
