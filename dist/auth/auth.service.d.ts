@@ -15,8 +15,8 @@ export declare class AuthService {
         email: string;
         name: string;
     }): Promise<{
-        name: string | null;
         email: string;
+        name: string | null;
         googleId: string | null;
         createdAt: Date;
         updatedAt: Date;

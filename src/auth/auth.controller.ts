@@ -69,9 +69,7 @@ export class AuthController {
 
   @Get('google')
   @UseGuards(GoogleOAuthGuard)
-  googleLogin() {
-    // просто редирект на Google
-  }
+  googleLogin() {}
 
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
@@ -88,17 +86,36 @@ export class AuthController {
         path: '/',
         expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
       });
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
       return response.send(`
         <script>
-          window.opener.postMessage('google-auth-success', '${FRONTEND_URL}');
-          window.close();
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage('google-auth-success', '${FRONTEND_URL}');
+              window.close();
+            } else {
+              // Если opener недоступен, редиректим напрямую
+              window.location.href = '${FRONTEND_URL}/app';
+            }
+          } catch (error) {
+            console.error('Error sending message:', error);
+            window.location.href = '${FRONTEND_URL}/app';
+          }
         </script>
       `);
     } catch (err) {
       console.error(err);
-      throw new UnauthorizedException('Ошибка авторизации через Google');
+      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+      return response.send(`
+        <script>
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage('google-auth-error', '${FRONTEND_URL}');
+          }
+          window.close();
+        </script>
+      `);
     }
   }
 }
