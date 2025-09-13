@@ -15,6 +15,12 @@ export declare class WordSetsController {
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     }>;
     create(createWordSetDto: CreateWordSetDto, req: RequestWithUser): import("@prisma/client").Prisma.Prisma__WordSetClient<{
@@ -37,6 +43,12 @@ export declare class WordSetsController {
             translation: string;
             status: import("@prisma/client").$Enums.WordStatus;
             customFields: import("@prisma/client/runtime/library").JsonValue | null;
+            successStreak: number;
+            timesSeen: number;
+            timesCorrect: number;
+            lastReviewedAt: Date | null;
+            learnedAt: Date | null;
+            missStreak: number;
             wordSetId: number;
         }[];
         total: number;

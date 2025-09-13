@@ -56,17 +56,14 @@ export class WordSetsService {
       throw new NotFoundException('Word set not found');
     }
 
-    // ✅ ИСПРАВЛЕНО: Теперь тип Prisma.WordWhereInput известен
     const whereClause: Prisma.WordWhereInput = {
       wordSetId: id,
     };
 
-    // Если передан статус, добавляем его в условие
     if (status) {
       whereClause.status = status as WordStatus;
     }
 
-    // Если передан поиск, ищем совпадения в original и translation (регистронезависимо)
     if (search) {
       whereClause.OR = [
         { original: { contains: search, mode: 'insensitive' } },
@@ -74,20 +71,18 @@ export class WordSetsService {
       ];
     }
 
-    // Выполняем запросы параллельно для лучшей производительности
     const [words, totalCount] = await Promise.all([
       this.prisma.word.findMany({
-        where: whereClause, // Используем созданное условие
+        where: whereClause,
         orderBy: { createdAt: 'asc' },
         skip: offset,
         take: limit,
       }),
       this.prisma.word.count({
-        where: whereClause, // И здесь тоже, для корректного подсчета
+        where: whereClause,
       }),
     ]);
 
-    // Возвращаем total для соответствия интерфейсу фронтенда WordSetPage
     return {
       ...wordSet,
       words,
@@ -96,19 +91,16 @@ export class WordSetsService {
     };
   }
 
-  // Update a word set, ensuring it belongs to the user
   async update(id: number, updateWordSetDto: UpdateWordSetDto, userId: number) {
-    // First, verify ownership
-    await this.findOne(id, userId, 0, 0); // Передаем offset и limit для соответствия
+    await this.findOne(id, userId, 0, 0);
     return this.prisma.wordSet.update({
       where: { id },
       data: updateWordSetDto,
     });
   }
 
-  // Remove a word set, ensuring it belongs to the user
   async remove(id: number, userId: number) {
-    await this.findOne(id, userId, 0, 0); // Передаем offset и limit для соответствия
+    await this.findOne(id, userId, 0, 0);
     return this.prisma.wordSet.delete({
       where: { id },
     });

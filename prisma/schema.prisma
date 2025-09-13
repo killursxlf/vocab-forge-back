@@ -44,10 +44,23 @@ model Word {
   original    String
   translation String
   status      WordStatus @default(NEW)
+
+  successStreak Int        @default(0)   
+  timesSeen     Int        @default(0)
+  timesCorrect  Int        @default(0)
+  lastReviewedAt DateTime?
+  learnedAt     DateTime?
+
+  missStreak    Int        @default(0)
+
   createdAt   DateTime @default(now())
   customFields Json?
   wordSetId   Int
   wordSet     WordSet  @relation(fields: [wordSetId], references: [id])
+
+  reviewEvents   ReviewEvent[] @relation("WordReviewEvents")
+
+  @@index([wordSetId, status, lastReviewedAt])
 }
 
 model CardSettings {
@@ -65,4 +78,17 @@ model CardSettings {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("card_settings")
+}
+
+model ReviewEvent {
+  id        String   @id @default(cuid())
+  wordId    Int
+  userId    Int
+  knows     Boolean
+  createdAt DateTime @default(now())
+
+  word      Word     @relation("WordReviewEvents", fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, wordId, createdAt])
 }

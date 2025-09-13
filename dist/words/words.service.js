@@ -12,13 +12,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const client_1 = require("@prisma/client");
 let WordsService = class WordsService {
     prisma;
+    UP = parseInt(process.env.LEARN_STREAK_THRESHOLD ?? '3', 10);
+    DOWN_ENABLED = (process.env.DOWNGRADE_ON_MISS ?? 'true') === 'true';
+    DOWN = parseInt(process.env.DOWNGRADE_MISS_THRESHOLD ?? '3', 10);
     constructor(prisma) {
         this.prisma = prisma;
     }
     async checkWordSetOwnership(wordSetId, userId) {
-        const wordSet = await this.prisma.wordSet.findUnique({ where: { id: wordSetId } });
+        const wordSet = await this.prisma.wordSet.findUnique({
+            where: { id: wordSetId },
+        });
         if (!wordSet || wordSet.userId !== userId) {
             throw new common_1.ForbiddenException('Access to this resource is denied');
         }
@@ -48,6 +54,53 @@ let WordsService = class WordsService {
             throw new common_1.NotFoundException('Word not found');
         await this.checkWordSetOwnership(word.wordSetId, userId);
         return this.prisma.word.delete({ where: { id: wordId } });
+    }
+    async submitAnswer(wordId, knows, userId) {
+        const now = new Date();
+        const word = await this.prisma.word.findUnique({
+            where: { id: wordId },
+            include: { wordSet: { select: { userId: true } } },
+        });
+        if (!word)
+            throw new common_1.NotFoundException('Word not found');
+        if (word.wordSet.userId !== userId)
+            throw new common_1.ForbiddenException();
+        let { status, successStreak, missStreak, timesSeen, timesCorrect, learnedAt, } = word;
+        timesSeen += 1;
+        if (knows) {
+            timesCorrect += 1;
+            successStreak += 1;
+            missStreak = 0;
+            if (status === client_1.WordStatus.NEW)
+                status = client_1.WordStatus.LEARNING;
+            if (successStreak >= this.UP && status !== client_1.WordStatus.LEARNED) {
+                status = client_1.WordStatus.LEARNED;
+                learnedAt = now;
+            }
+        }
+        else {
+            successStreak = 0;
+            missStreak = (missStreak ?? 0) + 1;
+            if (status === client_1.WordStatus.LEARNED &&
+                this.DOWN_ENABLED &&
+                missStreak >= this.DOWN) {
+                status = client_1.WordStatus.LEARNING;
+                learnedAt = null;
+                missStreak = 0;
+            }
+        }
+        return this.prisma.word.update({
+            where: { id: wordId },
+            data: {
+                status,
+                successStreak,
+                missStreak,
+                timesSeen,
+                timesCorrect,
+                learnedAt,
+                lastReviewedAt: now,
+            },
+        });
     }
 };
 exports.WordsService = WordsService;
