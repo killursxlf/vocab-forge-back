@@ -25,6 +25,12 @@ export declare class WordSetsService {
             translation: string;
             status: import("@prisma/client").$Enums.WordStatus;
             customFields: Prisma.JsonValue | null;
+            successStreak: number;
+            timesSeen: number;
+            timesCorrect: number;
+            lastReviewedAt: Date | null;
+            learnedAt: Date | null;
+            missStreak: number;
             wordSetId: number;
         }[];
         total: number;

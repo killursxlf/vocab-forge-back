@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const jwt_auth_guard_1 = require("../auth/jwt-auth.guard");
 const update_word_dto_1 = require("./dto/update-word.dto");
 const words_service_1 = require("./words.service");
+const answer_word_dto_1 = require("./dto/answer-word.dto");
 let WordsController = class WordsController {
     wordsService;
     constructor(wordsService) {
@@ -24,6 +25,9 @@ let WordsController = class WordsController {
     }
     update(id, updateWordDto, req) {
         return this.wordsService.update(id, updateWordDto, req.user.userId);
+    }
+    answer(id, dto, req) {
+        return this.wordsService.submitAnswer(+id, dto.knows, req.user.userId);
     }
     remove(id, req) {
         return this.wordsService.remove(id, req.user.userId);
@@ -39,6 +43,15 @@ __decorate([
     __metadata("design:paramtypes", [Number, update_word_dto_1.UpdateWordDto, Object]),
     __metadata("design:returntype", void 0)
 ], WordsController.prototype, "update", null);
+__decorate([
+    (0, common_1.Post)(':id/answer'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, answer_word_dto_1.AnswerWordDto, Object]),
+    __metadata("design:returntype", void 0)
+], WordsController.prototype, "answer", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),

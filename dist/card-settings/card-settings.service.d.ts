@@ -43,6 +43,12 @@ export declare class CardSettingsService {
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     } | {
         customFields: {
@@ -53,6 +59,12 @@ export declare class CardSettingsService {
         original: string;
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     })[]>;
 }

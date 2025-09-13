@@ -3,6 +3,9 @@ import { CreateWordDto } from './dto/create-word.dto';
 import { UpdateWordDto } from './dto/update-word.dto';
 export declare class WordsService {
     private prisma;
+    private readonly UP;
+    private readonly DOWN_ENABLED;
+    private readonly DOWN;
     constructor(prisma: PrismaService);
     private checkWordSetOwnership;
     create(createWordDto: CreateWordDto, wordSetId: number, userId: number): Promise<{
@@ -12,6 +15,12 @@ export declare class WordsService {
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     }>;
     update(wordId: number, updateWordDto: UpdateWordDto, userId: number): Promise<{
@@ -21,6 +30,12 @@ export declare class WordsService {
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     }>;
     remove(wordId: number, userId: number): Promise<{
@@ -30,6 +45,27 @@ export declare class WordsService {
         translation: string;
         status: import("@prisma/client").$Enums.WordStatus;
         customFields: import("@prisma/client/runtime/library").JsonValue | null;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
+        wordSetId: number;
+    }>;
+    submitAnswer(wordId: number, knows: boolean, userId: number): Promise<{
+        id: number;
+        createdAt: Date;
+        original: string;
+        translation: string;
+        status: import("@prisma/client").$Enums.WordStatus;
+        customFields: import("@prisma/client/runtime/library").JsonValue | null;
+        successStreak: number;
+        timesSeen: number;
+        timesCorrect: number;
+        lastReviewedAt: Date | null;
+        learnedAt: Date | null;
+        missStreak: number;
         wordSetId: number;
     }>;
 }
