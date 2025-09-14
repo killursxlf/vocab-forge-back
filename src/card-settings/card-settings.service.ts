@@ -2,13 +2,61 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, WordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
+type UserColumn = { key: string; name: string; labelKey?: string };
+type CustomColumnLike = Partial<UserColumn> & { key?: unknown; name?: unknown };
+
+type WordSetWithColumns = Prisma.WordSetGetPayload<{
+  select: { id: true; userId: true; customColumns: true };
+}>;
+
+function isString(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+function toKeyFromName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '_');
+}
+
+function normalizeCustomColumns(cols: unknown): UserColumn[] {
+  if (!Array.isArray(cols)) return [];
+  const result: UserColumn[] = [];
+  for (const raw of cols as CustomColumnLike[]) {
+    const keyRaw = raw?.key;
+    const nameRaw = raw?.name;
+
+    const name =
+      isString(nameRaw) && nameRaw.trim().length > 0
+        ? nameRaw.trim()
+        : isString(keyRaw)
+          ? keyRaw
+          : undefined;
+
+    let key: string | undefined;
+    if (isString(keyRaw) && keyRaw.trim().length > 0) {
+      key = keyRaw.trim();
+    } else if (isString(nameRaw) && nameRaw.trim().length > 0) {
+      key = toKeyFromName(nameRaw.trim());
+    }
+
+    if (key && name) {
+      result.push({ key, name });
+    }
+  }
+  return result;
+}
+
 @Injectable()
 export class CardSettingsService {
   constructor(private prisma: PrismaService) {}
 
   async getSettings(userId: number, selectedTables?: string[]) {
-    console.log('Getting settings for user:', userId, 'selectedTables:', selectedTables);
-    
+    console.log(
+      'Getting settings for user:',
+      userId,
+      'selectedTables:',
+      selectedTables,
+    );
+
     const settings = await this.prisma.cardSettings.upsert({
       where: { userId },
       update: {},
@@ -21,147 +69,138 @@ export class CardSettingsService {
         hintKey: null,
       },
     });
-    
-    
-    // Определяем какие таблицы нужно загрузить
+
     const tablesToLoad = selectedTables || settings.selectedTables || ['all'];
-    
-    let wordSetsQuery;
+
+    let wordSetsQuery: Prisma.WordSetFindManyArgs;
     if (tablesToLoad.includes('all')) {
-      // Загружаем все таблицы пользователя
       wordSetsQuery = {
         where: { userId },
-        orderBy: { id: 'desc' as const },
+        orderBy: { id: 'desc' },
       };
     } else {
-      // Загружаем только выбранные таблицы
       const numericIds = tablesToLoad
-        .filter(id => id !== 'all')
-        .map(id => parseInt(id, 10))
-        .filter(id => !isNaN(id));
-      
+        .filter((id) => id !== 'all')
+        .map((id) => parseInt(id, 10))
+        .filter((id) => !Number.isNaN(id));
+
       wordSetsQuery = {
-        where: { 
+        where: {
           userId,
-          id: { in: numericIds }
+          id: { in: numericIds },
         },
-        orderBy: { id: 'desc' as const },
+        orderBy: { id: 'desc' },
       };
     }
-    
+
     const wordSets = await this.prisma.wordSet.findMany(wordSetsQuery);
     console.log('Found wordSets:', wordSets.length);
-    
-    let userColumns = [
-      { key: 'original', name: 'Слово' },
-      { key: 'translation', name: 'Перевод' },
+
+    const userColumns: UserColumn[] = [
+      {
+        key: 'original',
+        name: 'Original',
+        labelKey: 'cards.setup.columns.original',
+      },
+      {
+        key: 'translation',
+        name: 'Translation',
+        labelKey: 'cards.setup.columns.translation',
+      },
     ];
-    
+
     if (wordSets.length > 0) {
       if (wordSets.length === 1) {
-        // Одна таблица - показываем все её кастомные колонки
         console.log('Single table mode');
-        const wordSet = wordSets[0];
+        const wordSet = wordSets[0] as WordSetWithColumns;
         console.log('WordSet customColumns:', wordSet.customColumns);
-        
-        if (wordSet.customColumns) {
-          try {
-            const customColumns = wordSet.customColumns as any[];
-            if (Array.isArray(customColumns) && customColumns.length > 0) {
-              customColumns.forEach(col => {
-                const key = col.key || col.name?.toLowerCase().replace(/\s+/g, '_');
-                const name = col.name || col.key;
-                if (key && name && !userColumns.find(c => c.key === key)) {
-                  userColumns.push({ key, name });
-                }
-              });
-            }
-          } catch (error) {
-            console.error('Error parsing custom columns for single wordSet:', wordSet.id, error);
+
+        const customCols = normalizeCustomColumns(wordSet.customColumns);
+        for (const col of customCols) {
+          if (!userColumns.find((c) => c.key === col.key)) {
+            userColumns.push(col);
           }
         }
       } else {
-        // Несколько таблиц - находим общие колонки
         console.log('Multiple tables mode');
-        const commonColumns = this.findCommonColumns(wordSets);
+        const commonColumns = this.findCommonColumns(
+          wordSets as WordSetWithColumns[],
+        );
         console.log('Common columns found:', commonColumns.size);
-        
+
         commonColumns.forEach((column, key) => {
-          if (!userColumns.find(c => c.key === key)) {
+          if (!userColumns.find((c) => c.key === key)) {
             userColumns.push(column);
           }
         });
       }
     }
-    
+
     console.log('Final userColumns:', userColumns);
-    
+
     return {
       ...settings,
-      userColumns
+      userColumns,
     };
   }
 
-  private findCommonColumns(wordSets: any[]): Map<string, { key: string; name: string }> {
+  private findCommonColumns(
+    wordSets: WordSetWithColumns[],
+  ): Map<string, UserColumn> {
     console.log('Finding common columns for', wordSets.length, 'wordSets');
-    
+
     if (wordSets.length === 0) {
       return new Map();
     }
 
-    // Собираем все колонки из всех таблиц
-    const allTableColumns: Array<Map<string, { key: string; name: string }>> = [];
-    
+    const allTableColumns: Array<Map<string, UserColumn>> = [];
+
     for (const wordSet of wordSets) {
-      const tableColumns = new Map<string, { key: string; name: string }>();
-      
-      if (wordSet.customColumns) {
-        try {
-          const customColumns = wordSet.customColumns as any[];
-          console.log(`WordSet ${wordSet.id} customColumns:`, customColumns);
-          
-          if (Array.isArray(customColumns)) {
-            customColumns.forEach(col => {
-              const key = col.key || col.name?.toLowerCase().replace(/\s+/g, '_');
-              const name = col.name || col.key;
-              if (key && name) {
-                tableColumns.set(key, { key, name });
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error parsing wordSet columns:', wordSet.id, error);
-        }
+      const tableColumns = new Map<string, UserColumn>();
+
+      const customCols = normalizeCustomColumns(wordSet.customColumns);
+      console.log(`WordSet ${wordSet.id} customColumns:`, customCols);
+
+      for (const col of customCols) {
+        tableColumns.set(col.key, col);
       }
-      
+
       allTableColumns.push(tableColumns);
-      console.log(`Table ${wordSet.id} columns:`, Array.from(tableColumns.keys()));
+      console.log(
+        `Table ${wordSet.id} columns:`,
+        Array.from(tableColumns.keys()),
+      );
     }
-    
-    // Находим пересечение: колонки, которые есть во ВСЕХ таблицах
-    const commonColumns = new Map<string, { key: string; name: string }>();
-    
+
+    const commonColumns = new Map<string, UserColumn>();
+
     if (allTableColumns.length > 0) {
-      // Берем первую таблицу как базу
       const firstTableColumns = allTableColumns[0];
-      
+
       for (const [key, column] of firstTableColumns) {
-        // Проверяем, есть ли эта колонка во всех остальных таблицах
-        const existsInAllTables = allTableColumns.every(tableColumns => 
-          tableColumns.has(key)
+        const existsInAllTables = allTableColumns.every((tableColumns) =>
+          tableColumns.has(key),
         );
-        
         if (existsInAllTables) {
           commonColumns.set(key, column);
         }
       }
     }
-    
+
     console.log('Common columns result:', Array.from(commonColumns.keys()));
     return commonColumns;
   }
 
-  async updateSettings(userId: number, updateData: any) {
+  async updateSettings(
+    userId: number,
+    updateData: Partial<{
+      frontKey: string;
+      backKey: string;
+      hintKey: string | null;
+      selectedStatuses: string[];
+      selectedTables: string[];
+    }>,
+  ) {
     return this.prisma.cardSettings.upsert({
       where: { userId },
       update: {
@@ -179,35 +218,41 @@ export class CardSettingsService {
     });
   }
 
-  async countWords(userId: number, filters: {
-    frontKey: string,
-    backKey: string,
-    hintKey: string | null,
-    selectedStatuses: string[],
-    selectedTables: string[], 
-  }) {
+  async countWords(
+    userId: number,
+    filters: {
+      frontKey: string;
+      backKey: string;
+      hintKey: string | null;
+      selectedStatuses: string[];
+      selectedTables: string[];
+    },
+  ) {
     const { selectedStatuses, selectedTables } = filters;
-    
-    const validStatuses = ['NEW', 'LEARNING', 'LEARNED'] as const;
-    const filteredStatuses = selectedStatuses.filter(s =>
-      validStatuses.includes(s as typeof validStatuses[number])
-    ) as WordStatus[];
-    
-    const statusFilter = filteredStatuses.length > 0 && !selectedStatuses.includes('all')
-      ? { in: filteredStatuses }
-      : undefined;
 
-    const tableFilter = selectedTables.length > 0 && !selectedTables.includes('all')
-      ? { 
-          in: selectedTables.map(id => parseInt(id, 10)).filter(id => !isNaN(id))
-        }
-      : undefined;
+    const validStatuses = ['NEW', 'LEARNING', 'LEARNED'] as const;
+    const filteredStatuses = selectedStatuses.filter(
+      (s): s is (typeof validStatuses)[number] =>
+        (validStatuses as readonly string[]).includes(s),
+    ) as WordStatus[];
+
+    const statusFilter =
+      filteredStatuses.length > 0 && !selectedStatuses.includes('all')
+        ? { in: filteredStatuses }
+        : undefined;
+
+    const tableIds =
+      selectedTables.length > 0 && !selectedTables.includes('all')
+        ? selectedTables
+            .map((id) => parseInt(id, 10))
+            .filter((id) => !Number.isNaN(id))
+        : undefined;
 
     const count = await this.prisma.word.count({
       where: {
-        wordSet: { 
-          userId: userId,
-          ...(tableFilter ? { id: tableFilter } : {}), 
+        wordSet: {
+          userId,
+          ...(tableIds && tableIds.length > 0 ? { id: { in: tableIds } } : {}),
         },
         ...(statusFilter ? { status: statusFilter } : {}),
       },
@@ -216,62 +261,55 @@ export class CardSettingsService {
     return count;
   }
 
-async getTrainingCards(userId: number) {
-    // 1. Загружаем сохраненные настройки для этого пользователя
+  async getTrainingCards(userId: number) {
     const settings = await this.prisma.cardSettings.findUnique({
       where: { userId },
     });
 
-    // Если у пользователя нет настроек, используем значения по умолчанию
     const selectedTables = settings?.selectedTables || ['all'];
     const selectedStatuses = settings?.selectedStatuses || ['all'];
     const hintKey = settings?.hintKey || null;
 
-    // 2. Вся остальная логика остается такой же, но использует данные из settings
-    const wordSetFilter: Prisma.WordSetWhereInput = {
-      userId: userId,
-    };
+    const wordSetFilter: Prisma.WordSetWhereInput = { userId };
 
-    if (selectedTables && selectedTables.length > 0 && !selectedTables.includes('all')) {
+    if (selectedTables.length > 0 && !selectedTables.includes('all')) {
       const tableIds = selectedTables
         .map((id) => parseInt(id, 10))
-        .filter((id) => !isNaN(id));
+        .filter((id) => !Number.isNaN(id));
 
       if (tableIds.length > 0) {
-        wordSetFilter.id = {
-          in: tableIds,
-        };
+        wordSetFilter.id = { in: tableIds };
       }
     }
 
-    const where: Prisma.WordWhereInput = {
-      wordSet: wordSetFilter,
-    };
+    const where: Prisma.WordWhereInput = { wordSet: wordSetFilter };
 
     const validStatuses = ['NEW', 'LEARNING', 'LEARNED'] as const;
-    const filteredStatuses = selectedStatuses.filter((s) =>
-      validStatuses.includes(s as (typeof validStatuses)[number]),
+    const filteredStatuses = selectedStatuses.filter(
+      (s): s is (typeof validStatuses)[number] =>
+        (validStatuses as readonly string[]).includes(s),
     ) as WordStatus[];
 
     if (filteredStatuses.length > 0 && !selectedStatuses.includes('all')) {
-      where.status = {
-        in: filteredStatuses,
-      };
+      where.status = { in: filteredStatuses };
     }
 
     const words = await this.prisma.word.findMany({ where });
 
     return words.map((word) => {
-      if (!hintKey || !word.customFields) {
+      if (!hintKey || word.customFields == null) {
         return { ...word, customFields: null };
       }
-      const fields = word.customFields as Record<string, any>;
-      const hintValue = fields[hintKey];
-      if (hintValue !== undefined) {
-        return { ...word, customFields: { [hintKey]: hintValue } };
-      } else {
-        return { ...word, customFields: null };
+
+      const fields = word.customFields as unknown;
+      if (fields && typeof fields === 'object') {
+        const rec = fields as Record<string, unknown>;
+        const hintValue = rec[hintKey];
+        if (hintValue !== undefined) {
+          return { ...word, customFields: { [hintKey]: hintValue } };
+        }
       }
+      return { ...word, customFields: null };
     });
   }
 }
