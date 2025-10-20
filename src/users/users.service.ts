@@ -92,7 +92,6 @@ export class UsersService {
       );
     }
 
-    // Этот код выполнится, только если пароль в базе данных есть
     const isPasswordMatch = await bcrypt.compare(currentPass, user.password);
     if (!isPasswordMatch) {
       throw new UnauthorizedException('Неверный текущий пароль');
@@ -111,7 +110,6 @@ export class UsersService {
 
   findAll() {
     return this.prisma.user.findMany({
-      // Теперь эта строка не вызовет ошибку
       select: { id: true, email: true, name: true, createdAt: true },
     });
   }

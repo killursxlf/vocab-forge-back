@@ -18,7 +18,7 @@ export class UpdateCardSettingsDto {
   backKey?: string;
   selectedStatuses?: string[];
   hintKey?: string | null;
-  selectedTables?: string[]; // Добавляем selectedTables в DTO
+  selectedTables?: string[]; 
 }
 
 class GetTrainingCardsDto {
@@ -26,7 +26,7 @@ class GetTrainingCardsDto {
   backKey: string;
   hintKey: string | null;
   status: string;
-  tables: string; // Приходит как строка, разделенная запятыми
+  tables: string; 
 }
 
 class CountWordsDto {
@@ -60,11 +60,9 @@ export class CardSettingsController {
         throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
       }
 
-      // Преобразуем строку таблиц в массив, если передана
       const selectedTables = tables ? tables.split(',') : undefined;
       const result = await this.cardSettingsService.getSettings(userId, selectedTables);
 
-      // Форматируем ответ для фронтенда
       return {
         data: {
           frontKey: result.frontKey,
@@ -97,7 +95,6 @@ export class CardSettingsController {
 
       const result = await this.cardSettingsService.updateSettings(userId, updateData);
       
-      // После обновления настроек, получаем актуальные колонки для выбранных таблиц
       const settingsWithColumns = await this.cardSettingsService.getSettings(
         userId, 
         updateData.selectedTables
@@ -143,7 +140,6 @@ export class CardSettingsController {
       throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
     }
     
-    // Просто вызываем сервис с ID пользователя. Никаких параметров.
     return this.cardSettingsService.getTrainingCards(userId);
   }
 } 

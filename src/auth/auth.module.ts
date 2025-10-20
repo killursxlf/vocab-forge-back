@@ -11,7 +11,7 @@ import { GoogleStrategy } from './google.strategy';
 
 @Module({
   imports: [
-    ConfigModule.forRoot(), // Загружает .env
+    ConfigModule.forRoot(),
     UsersModule,
     PassportModule,
     JwtModule.registerAsync({

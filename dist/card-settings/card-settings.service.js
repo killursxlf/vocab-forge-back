@@ -12,6 +12,37 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CardSettingsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+function isString(v) {
+    return typeof v === 'string';
+}
+function toKeyFromName(name) {
+    return name.toLowerCase().replace(/\s+/g, '_');
+}
+function normalizeCustomColumns(cols) {
+    if (!Array.isArray(cols))
+        return [];
+    const result = [];
+    for (const raw of cols) {
+        const keyRaw = raw?.key;
+        const nameRaw = raw?.name;
+        const name = isString(nameRaw) && nameRaw.trim().length > 0
+            ? nameRaw.trim()
+            : isString(keyRaw)
+                ? keyRaw
+                : undefined;
+        let key;
+        if (isString(keyRaw) && keyRaw.trim().length > 0) {
+            key = keyRaw.trim();
+        }
+        else if (isString(nameRaw) && nameRaw.trim().length > 0) {
+            key = toKeyFromName(nameRaw.trim());
+        }
+        if (key && name) {
+            result.push({ key, name });
+        }
+    }
+    return result;
+}
 let CardSettingsService = class CardSettingsService {
     prisma;
     constructor(prisma) {
@@ -41,43 +72,40 @@ let CardSettingsService = class CardSettingsService {
         }
         else {
             const numericIds = tablesToLoad
-                .filter(id => id !== 'all')
-                .map(id => parseInt(id, 10))
-                .filter(id => !isNaN(id));
+                .filter((id) => id !== 'all')
+                .map((id) => parseInt(id, 10))
+                .filter((id) => !Number.isNaN(id));
             wordSetsQuery = {
                 where: {
                     userId,
-                    id: { in: numericIds }
+                    id: { in: numericIds },
                 },
                 orderBy: { id: 'desc' },
             };
         }
         const wordSets = await this.prisma.wordSet.findMany(wordSetsQuery);
         console.log('Found wordSets:', wordSets.length);
-        let userColumns = [
-            { key: 'original', name: 'Слово' },
-            { key: 'translation', name: 'Перевод' },
+        const userColumns = [
+            {
+                key: 'original',
+                name: 'Original',
+                labelKey: 'cards.setup.columns.original',
+            },
+            {
+                key: 'translation',
+                name: 'Translation',
+                labelKey: 'cards.setup.columns.translation',
+            },
         ];
         if (wordSets.length > 0) {
             if (wordSets.length === 1) {
                 console.log('Single table mode');
                 const wordSet = wordSets[0];
                 console.log('WordSet customColumns:', wordSet.customColumns);
-                if (wordSet.customColumns) {
-                    try {
-                        const customColumns = wordSet.customColumns;
-                        if (Array.isArray(customColumns) && customColumns.length > 0) {
-                            customColumns.forEach(col => {
-                                const key = col.key || col.name?.toLowerCase().replace(/\s+/g, '_');
-                                const name = col.name || col.key;
-                                if (key && name && !userColumns.find(c => c.key === key)) {
-                                    userColumns.push({ key, name });
-                                }
-                            });
-                        }
-                    }
-                    catch (error) {
-                        console.error('Error parsing custom columns for single wordSet:', wordSet.id, error);
+                const customCols = normalizeCustomColumns(wordSet.customColumns);
+                for (const col of customCols) {
+                    if (!userColumns.find((c) => c.key === col.key)) {
+                        userColumns.push(col);
                     }
                 }
             }
@@ -86,7 +114,7 @@ let CardSettingsService = class CardSettingsService {
                 const commonColumns = this.findCommonColumns(wordSets);
                 console.log('Common columns found:', commonColumns.size);
                 commonColumns.forEach((column, key) => {
-                    if (!userColumns.find(c => c.key === key)) {
+                    if (!userColumns.find((c) => c.key === key)) {
                         userColumns.push(column);
                     }
                 });
@@ -95,7 +123,7 @@ let CardSettingsService = class CardSettingsService {
         console.log('Final userColumns:', userColumns);
         return {
             ...settings,
-            userColumns
+            userColumns,
         };
     }
     findCommonColumns(wordSets) {
@@ -106,23 +134,10 @@ let CardSettingsService = class CardSettingsService {
         const allTableColumns = [];
         for (const wordSet of wordSets) {
             const tableColumns = new Map();
-            if (wordSet.customColumns) {
-                try {
-                    const customColumns = wordSet.customColumns;
-                    console.log(`WordSet ${wordSet.id} customColumns:`, customColumns);
-                    if (Array.isArray(customColumns)) {
-                        customColumns.forEach(col => {
-                            const key = col.key || col.name?.toLowerCase().replace(/\s+/g, '_');
-                            const name = col.name || col.key;
-                            if (key && name) {
-                                tableColumns.set(key, { key, name });
-                            }
-                        });
-                    }
-                }
-                catch (error) {
-                    console.error('Error parsing wordSet columns:', wordSet.id, error);
-                }
+            const customCols = normalizeCustomColumns(wordSet.customColumns);
+            console.log(`WordSet ${wordSet.id} customColumns:`, customCols);
+            for (const col of customCols) {
+                tableColumns.set(col.key, col);
             }
             allTableColumns.push(tableColumns);
             console.log(`Table ${wordSet.id} columns:`, Array.from(tableColumns.keys()));
@@ -131,7 +146,7 @@ let CardSettingsService = class CardSettingsService {
         if (allTableColumns.length > 0) {
             const firstTableColumns = allTableColumns[0];
             for (const [key, column] of firstTableColumns) {
-                const existsInAllTables = allTableColumns.every(tableColumns => tableColumns.has(key));
+                const existsInAllTables = allTableColumns.every((tableColumns) => tableColumns.has(key));
                 if (existsInAllTables) {
                     commonColumns.set(key, column);
                 }
@@ -160,20 +175,20 @@ let CardSettingsService = class CardSettingsService {
     async countWords(userId, filters) {
         const { selectedStatuses, selectedTables } = filters;
         const validStatuses = ['NEW', 'LEARNING', 'LEARNED'];
-        const filteredStatuses = selectedStatuses.filter(s => validStatuses.includes(s));
+        const filteredStatuses = selectedStatuses.filter((s) => validStatuses.includes(s));
         const statusFilter = filteredStatuses.length > 0 && !selectedStatuses.includes('all')
             ? { in: filteredStatuses }
             : undefined;
-        const tableFilter = selectedTables.length > 0 && !selectedTables.includes('all')
-            ? {
-                in: selectedTables.map(id => parseInt(id, 10)).filter(id => !isNaN(id))
-            }
+        const tableIds = selectedTables.length > 0 && !selectedTables.includes('all')
+            ? selectedTables
+                .map((id) => parseInt(id, 10))
+                .filter((id) => !Number.isNaN(id))
             : undefined;
         const count = await this.prisma.word.count({
             where: {
                 wordSet: {
-                    userId: userId,
-                    ...(tableFilter ? { id: tableFilter } : {}),
+                    userId,
+                    ...(tableIds && tableIds.length > 0 ? { id: { in: tableIds } } : {}),
                 },
                 ...(statusFilter ? { status: statusFilter } : {}),
             },
@@ -187,42 +202,35 @@ let CardSettingsService = class CardSettingsService {
         const selectedTables = settings?.selectedTables || ['all'];
         const selectedStatuses = settings?.selectedStatuses || ['all'];
         const hintKey = settings?.hintKey || null;
-        const wordSetFilter = {
-            userId: userId,
-        };
-        if (selectedTables && selectedTables.length > 0 && !selectedTables.includes('all')) {
+        const wordSetFilter = { userId };
+        if (selectedTables.length > 0 && !selectedTables.includes('all')) {
             const tableIds = selectedTables
                 .map((id) => parseInt(id, 10))
-                .filter((id) => !isNaN(id));
+                .filter((id) => !Number.isNaN(id));
             if (tableIds.length > 0) {
-                wordSetFilter.id = {
-                    in: tableIds,
-                };
+                wordSetFilter.id = { in: tableIds };
             }
         }
-        const where = {
-            wordSet: wordSetFilter,
-        };
+        const where = { wordSet: wordSetFilter };
         const validStatuses = ['NEW', 'LEARNING', 'LEARNED'];
         const filteredStatuses = selectedStatuses.filter((s) => validStatuses.includes(s));
         if (filteredStatuses.length > 0 && !selectedStatuses.includes('all')) {
-            where.status = {
-                in: filteredStatuses,
-            };
+            where.status = { in: filteredStatuses };
         }
         const words = await this.prisma.word.findMany({ where });
         return words.map((word) => {
-            if (!hintKey || !word.customFields) {
+            if (!hintKey || word.customFields == null) {
                 return { ...word, customFields: null };
             }
             const fields = word.customFields;
-            const hintValue = fields[hintKey];
-            if (hintValue !== undefined) {
-                return { ...word, customFields: { [hintKey]: hintValue } };
+            if (fields && typeof fields === 'object') {
+                const rec = fields;
+                const hintValue = rec[hintKey];
+                if (hintValue !== undefined) {
+                    return { ...word, customFields: { [hintKey]: hintValue } };
+                }
             }
-            else {
-                return { ...word, customFields: null };
-            }
+            return { ...word, customFields: null };
         });
     }
 };

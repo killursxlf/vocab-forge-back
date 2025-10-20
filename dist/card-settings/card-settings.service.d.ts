@@ -1,12 +1,14 @@
 import { PrismaService } from '../prisma/prisma.service';
+type UserColumn = {
+    key: string;
+    name: string;
+    labelKey?: string;
+};
 export declare class CardSettingsService {
     private prisma;
     constructor(prisma: PrismaService);
     getSettings(userId: number, selectedTables?: string[]): Promise<{
-        userColumns: {
-            key: string;
-            name: string;
-        }[];
+        userColumns: UserColumn[];
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -18,7 +20,13 @@ export declare class CardSettingsService {
         hintKey: string | null;
     }>;
     private findCommonColumns;
-    updateSettings(userId: number, updateData: any): Promise<{
+    updateSettings(userId: number, updateData: Partial<{
+        frontKey: string;
+        backKey: string;
+        hintKey: string | null;
+        selectedStatuses: string[];
+        selectedTables: string[];
+    }>): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -52,7 +60,7 @@ export declare class CardSettingsService {
         wordSetId: number;
     } | {
         customFields: {
-            [x: string]: any;
+            [x: string]: {} | null;
         };
         id: number;
         createdAt: Date;
@@ -68,3 +76,4 @@ export declare class CardSettingsService {
         wordSetId: number;
     })[]>;
 }
+export {};

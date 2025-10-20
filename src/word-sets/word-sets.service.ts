@@ -2,27 +2,23 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateWordSetDto } from './dto/create-word-set.dto';
 import { UpdateWordSetDto } from './dto/update-word-set.dto';
-// ✅ ИСПРАВЛЕНО: Добавлен импорт типов из Prisma Client
 import { Prisma } from '@prisma/client';
 
-// ✅ ИСПРАВЛЕНО: Определен тип WordStatus, который используется ниже
 type WordStatus = 'NEW' | 'LEARNING' | 'LEARNED';
 
 @Injectable()
 export class WordSetsService {
   constructor(private prisma: PrismaService) {}
 
-  // Create a new word set for a specific user
   create(createWordSetDto: CreateWordSetDto, userId: number) {
     return this.prisma.wordSet.create({
       data: {
         ...createWordSetDto,
-        userId: userId, // Link to the user
+        userId: userId,
       },
     });
   }
 
-  // Find all word sets belonging to a specific user
   findAll(userId: number) {
     return this.prisma.wordSet.findMany({
       where: {

@@ -32,6 +32,7 @@ export declare class CardSettingsController {
             userColumns: {
                 key: string;
                 name: string;
+                labelKey?: string;
             }[];
         };
     }>;
@@ -45,6 +46,7 @@ export declare class CardSettingsController {
             userColumns: {
                 key: string;
                 name: string;
+                labelKey?: string;
             }[];
         };
     }>;
@@ -69,7 +71,7 @@ export declare class CardSettingsController {
         wordSetId: number;
     } | {
         customFields: {
-            [x: string]: any;
+            [x: string]: {} | null;
         };
         id: number;
         createdAt: Date;

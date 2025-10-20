@@ -13,7 +13,7 @@ import { CardSettingsModule } from './card-settings/card-settings.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }), // <-- подключаем ConfigModule
+    ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     UsersModule,
     WordSetsModule,
