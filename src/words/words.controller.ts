@@ -30,8 +30,17 @@ export class WordsController {
   }
 
   @Post(':id/answer')
-  answer(@Param('id') id: string, @Body() dto: AnswerWordDto, @Req() req: any) {
-    return this.wordsService.submitAnswer(+id, dto.knows, req.user.userId);
+  answer(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AnswerWordDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.wordsService.submitAnswer(
+      id,
+      dto.knows,
+      req.user.userId,
+      dto.answerId,
+    );
   }
 
   @Delete(':id')
