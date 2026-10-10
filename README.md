@@ -1,98 +1,146 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Vocab Forge Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API приложения для изучения слов: наборы слов с пользовательскими колонками, карточки для тренировки и отслеживание прогресса.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Стек: TypeScript, NestJS 11, Prisma ORM 6, PostgreSQL в облаке Prisma. Авторизация через email/пароль и Google OAuth, с JWT в HttpOnly cookie. Пароли хешируются с bcrypt.
 
-## Description
+## Запуск для разработки
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Понадобятся Node.js 22 и доступ к базе проекта в Prisma Console. Локальную базу поднимать не требуется.
 
-## Project setup
+### 1. Установить зависимости
 
-```bash
-$ npm install
+```sh
+npm install
 ```
 
-## Compile and run the project
+Если используете Bun, вместо этой команды можно выполнить `bun install`.
 
-```bash
-# development
-$ npm run start
+### 2. Создать `.env` в корне проекта
 
-# watch mode
-$ npm run start:dev
+```dotenv
+DATABASE_URL="<строка подключения к базе проекта из Prisma Console>"
+JWT_SECRET="<случайный секрет>"
+PORT=3000
+FRONTEND_URL="http://localhost:8080"
 
-# production mode
-$ npm run start:prod
+GOOGLE_CLIENT_ID="<Google OAuth client ID>"
+GOOGLE_CLIENT_SECRET="<Google OAuth client secret>"
+GOOGLE_CALLBACK_URL="http://localhost:3000/auth/google/callback"
 ```
 
-## Run tests
+`DATABASE_URL` используется и приложением, и Prisma CLI. Скопируйте строку подключения к существующей базе из Prisma Console. `.env` исключён из Git; ключи и строку подключения не добавляйте в репозиторий.
 
-```bash
-# unit tests
-$ npm run test
+Сгенерировать `JWT_SECRET`:
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-## Deployment
+Сохраните результат в `.env`. Смена секрета делает ранее выданные токены недействительными.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+GoogleStrategy подключена при каждом запуске, поэтому `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET` должны быть непустыми. Для разработки без входа через Google можно поставить `local-placeholder` в оба поля. Для работающего Google OAuth нужны настоящие credentials, а `GOOGLE_CALLBACK_URL` должен быть зарегистрирован как разрешённый redirect URI в настройках OAuth клиента.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 3. Сгенерировать Prisma Client и запустить API
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```sh
+npx prisma generate
+npm run start:dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+По умолчанию API доступен по адресу `http://localhost:3000`, фронтенд — `http://localhost:8080`. Приложение подключается к базе при запуске, поэтому `DATABASE_URL` должен быть действительным.
 
-## Resources
+## База данных и миграции
 
-Check out a few resources that may come in handy when working with NestJS:
+Схема находится в `prisma/schema.prisma`, история миграций — в `prisma/migrations/`. Основные модели: `User`, `WordSet`, `Word`, `CardSettings`, `ReviewEvent`.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Если существующая база уже соответствует проекту, для локального запуска достаточно генерации клиента. Проверить состояние миграций:
 
-## Support
+```sh
+npx prisma migrate status
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+Для новой базы или применения ожидающих миграций проекта:
 
-## Stay in touch
+```sh
+npx prisma migrate deploy
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Команда изменяет базу, указанную в `DATABASE_URL`. При изменении схемы создавайте миграции на отдельной базе для разработки:
 
-## License
+```sh
+npx prisma migrate dev --name describe_change
+npx prisma generate
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Для просмотра данных:
+
+```sh
+npx prisma studio
+```
+
+Подробнее: [миграции в Prisma ORM 6](https://www.prisma.io/docs/orm/v6/prisma-migrate/workflows/development-and-production).
+
+## Авторизация и фронтенд
+
+Регистрация: `POST /users/register` с JSON `{ "email": "user@example.com", "password": "example-password", "name": "User" }`. Вход: `POST /auth/login` с email и паролем. Google OAuth начинается с `GET /auth/google`.
+
+При входе сервер устанавливает cookie `access_token`. JWT действует один день. Защищённые маршруты читают токен из cookie; запросы с фронтенда должны отправлять cookies (`credentials: 'include'` для fetch или `withCredentials: true` для Axios).
+
+Cookie настроена с `HttpOnly`, `Secure` и `SameSite=None`. Для развёртывания используйте HTTPS. Если авторизация по локальному HTTP не работает, проверьте, принимает ли браузер Secure cookie для localhost.
+
+CORS настроен в `src/main.ts`. Сейчас разрешены `http://localhost:8080`, `https://vocab-forge-front.vercel.app` и `http://192.168.178.60:8080`. Если адрес фронтенда меняется, обновите этот список. `FRONTEND_URL` задаёт адрес возврата и получателя сообщений после Google OAuth, но не меняет CORS.
+
+## Основные маршруты
+
+| Метод | Маршрут | Назначение |
+| --- | --- | --- |
+| POST | `/users/register` | Регистрация |
+| POST | `/auth/login` | Вход по email и паролю |
+| POST | `/auth/logout` | Выход |
+| GET | `/auth/profile` | Данные из JWT |
+| GET | `/auth/google` | Вход через Google |
+| GET | `/auth/google/callback` | Callback Google OAuth |
+| GET, PATCH | `/users/me` | Просмотр и изменение профиля |
+| POST | `/users/change-password` | Смена пароля |
+| GET, POST | `/word-sets` | Список и создание наборов слов |
+| GET, PATCH, DELETE | `/word-sets/:id` | Просмотр, изменение и удаление набора |
+| POST | `/word-sets/:id/words` | Добавление слова |
+| PATCH, DELETE | `/words/:id` | Изменение и удаление слова |
+| POST | `/words/:id/answer` | Ответ на карточку: `{ "knows": true }` |
+| GET, PUT | `/card-settings` | Получение и сохранение настроек карточек |
+| POST | `/card-settings/count` | Количество слов по выбранным настройкам |
+| GET | `/card-settings/cards` | Карточки по сохранённым настройкам |
+
+`GET /word-sets/:id` поддерживает параметры `offset` (по умолчанию 0), `limit` (100), `search` и `status`. Форматы тел запросов описаны в DTO соответствующих модулей в `src/`.
+
+## Прогресс обучения
+
+Статусы слова: `NEW`, `LEARNING`, `LEARNED`. Правильный ответ переводит новое слово в обучение; серия правильных ответов переводит его в изученные. Серия ошибок может вернуть изученное слово в обучение. Для каждого слова сохраняются счётчики ответов и время последнего повторения.
+
+Необязательные переменные `.env`:
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `LEARN_STREAK_THRESHOLD` | `3` | Правильных ответов подряд для статуса `LEARNED` |
+| `DOWNGRADE_ON_MISS` | `true` | Возвращать изученные слова в обучение при ошибках |
+| `DOWNGRADE_MISS_THRESHOLD` | `3` | Ошибок подряд для возврата в `LEARNING` |
+
+## Сборка и проверки
+
+```sh
+npm run build
+npm run start:prod
+```
+
+`build` создаёт папку `dist/`, из которой запускается production сервер. Она исключена из Git, поэтому при развёртывании нужно установить зависимости, сгенерировать Prisma Client и выполнить сборку. Ожидающие миграции применяются отдельно через `npx prisma migrate deploy`.
+
+```sh
+npm test
+npm run test:e2e
+npm run test:cov
+npm run lint
+npm run format
+```
+
+E2E-тесты поднимают `AppModule` и требуют настроенного окружения и доступной базы. `lint` и `format` изменяют файлы, исправляя стиль кода.
