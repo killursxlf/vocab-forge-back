@@ -1,34 +1,41 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { Strategy } from 'passport-jwt';
+import { UsersService } from '../users/users.service';
 import type { User } from './interfaces/user.interface';
-
-const cookieExtractor = (req: Request): string | null => {
-  if (req && req.cookies) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return req.cookies['access_token'];
-  }
-  return null;
-};
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
-    const secret = process.env.JWT_SECRET;
-
-    if (!secret) {
-      throw new Error('JWT_SECRET не определен в .env файле!');
-    }
-
+  constructor(
+    config: ConfigService,
+    private readonly users: UsersService,
+  ) {
     super({
-      jwtFromRequest: cookieExtractor,
+      jwtFromRequest: (request: Request) => {
+        const token: unknown = request?.cookies?.['access_token'];
+        return typeof token === 'string' ? token : null;
+      },
       ignoreExpiration: false,
-      secretOrKey: secret,
+      secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+      issuer: 'vocab-forge',
+      audience: 'vocab-forge-api',
+      algorithms: ['HS256'],
     });
   }
 
-  validate(payload: { sub: number; email: string }): Omit<User, 'password'> {
-    return { userId: payload.sub, email: payload.email };
+  async validate(payload: { sub?: unknown; version?: unknown }): Promise<User> {
+    if (!Number.isInteger(payload.sub) || !Number.isInteger(payload.version))
+      throw new UnauthorizedException();
+    const user = await this.users.findForAuthentication(payload.sub as number);
+    if (!user || user.tokenVersion !== payload.version)
+      throw new UnauthorizedException();
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      tokenVersion: user.tokenVersion,
+    };
   }
 }

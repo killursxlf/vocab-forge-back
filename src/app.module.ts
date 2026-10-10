@@ -7,21 +7,23 @@ import { UsersModule } from './users/users.module';
 import { WordSetsModule } from './word-sets/word-sets.module';
 import { WordsModule } from './words/words.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { CardSettingsService } from './card-settings/card-settings.service';
-import { CardSettingsController } from './card-settings/card-settings.controller';
 import { CardSettingsModule } from './card-settings/card-settings.module';
+import { SecurityModule } from './security/security.module';
+import { HealthController } from './health/health.controller';
+import { validateEnvironment } from './config/environment';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    PrismaModule,
+    SecurityModule,
     AuthModule,
     UsersModule,
     WordSetsModule,
     WordsModule,
-    PrismaModule,
     CardSettingsModule,
   ],
-  controllers: [AppController, CardSettingsController],
-  providers: [AppService, CardSettingsService],
+  controllers: [AppController, HealthController],
+  providers: [AppService],
 })
 export class AppModule {}

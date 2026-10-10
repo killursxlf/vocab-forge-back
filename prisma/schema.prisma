@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,24 +8,27 @@ datasource db {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  name      String?
-  password  String?
-  googleId  String?   @unique
-  wordSets  WordSet[]
+  id           Int           @id @default(autoincrement())
+  email        String        @unique
+  name         String?
+  password     String?
+  googleId     String?       @unique
+  tokenVersion Int           @default(0)
+  wordSets     WordSet[]
   cardSettings CardSettings?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 model WordSet {
-  id            Int      @id @default(autoincrement())
+  id            Int    @id @default(autoincrement())
   title         String
-  customColumns Json     @default("[]")
+  customColumns Json   @default("[]")
   userId        Int
-  user          User     @relation(fields: [userId], references: [id])
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   words         Word[]
+
+  @@index([userId, id])
 }
 
 enum WordStatus {
@@ -40,43 +38,44 @@ enum WordStatus {
 }
 
 model Word {
-  id          Int      @id @default(autoincrement())
+  id          Int        @id @default(autoincrement())
   original    String
   translation String
   status      WordStatus @default(NEW)
 
-  successStreak Int        @default(0)   
-  timesSeen     Int        @default(0)
-  timesCorrect  Int        @default(0)
+  successStreak  Int       @default(0)
+  timesSeen      Int       @default(0)
+  timesCorrect   Int       @default(0)
   lastReviewedAt DateTime?
-  learnedAt     DateTime?
+  learnedAt      DateTime?
 
-  missStreak    Int        @default(0)
+  missStreak Int @default(0)
 
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
   customFields Json?
-  wordSetId   Int
-  wordSet     WordSet  @relation(fields: [wordSetId], references: [id])
+  wordSetId    Int
+  wordSet      WordSet  @relation(fields: [wordSetId], references: [id], onDelete: Cascade)
 
-  reviewEvents   ReviewEvent[] @relation("WordReviewEvents")
+  reviewEvents ReviewEvent[] @relation("WordReviewEvents")
 
   @@index([wordSetId, status, lastReviewedAt])
+  @@index([wordSetId, createdAt, id])
 }
 
 model CardSettings {
-  id               String    @id @default(cuid())
-  userId           Int       @unique  // Изменено на Int для соответствия User.id
-  frontKey         String    @default("word")        
-  backKey          String    @default("translation") 
-  selectedStatuses String[]  @default(["all"])
-  selectedTables   String[]  @default(["all"])       
-  hintKey          String?                           
-  
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  
+  id               String   @id @default(cuid())
+  userId           Int      @unique // Изменено на Int для соответствия User.id
+  frontKey         String   @default("original")
+  backKey          String   @default("translation")
+  selectedStatuses String[] @default(["all"])
+  selectedTables   String[] @default(["all"])
+  hintKey          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@map("card_settings")
 }
 
@@ -87,8 +86,16 @@ model ReviewEvent {
   knows     Boolean
   createdAt DateTime @default(now())
 
-  word      Word     @relation("WordReviewEvents", fields: [wordId], references: [id], onDelete: Cascade)
+  word Word @relation("WordReviewEvents", fields: [wordId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([userId, wordId, createdAt])
+}
+
+model AuthRateLimit {
+  key       String   @id
+  count     Int
+  expiresAt DateTime
+
+  @@index([expiresAt])
 }

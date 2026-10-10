@@ -4,82 +4,82 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
-  Req,
-  UseGuards,
   Query,
+  Req,
+  Res,
+  UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import type { Response } from 'express';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ParseIdPipe } from '../common/parse-id.pipe';
 import type { RequestWithUser } from '../auth/interfaces/request-with-user.interface';
+import { PaginationDto } from '../common/pagination.dto';
 import { CreateWordSetDto } from './dto/create-word-set.dto';
 import { UpdateWordSetDto } from './dto/update-word-set.dto';
+import { WordSetQueryDto } from './dto/word-set-query.dto';
 import { WordSetsService } from './word-sets.service';
-import { WordsService } from 'src/words/words.service';
-import { CreateWordDto } from 'src/words/dto/create-word.dto';
+import { WordsService } from '../words/words.service';
+import { CreateWordDto } from '../words/dto/create-word.dto';
 
 @Controller('word-sets')
 @UseGuards(JwtAuthGuard)
 export class WordSetsController {
   constructor(
-    private readonly wordSetsService: WordSetsService,
-    private readonly wordsService: WordsService,
+    private readonly sets: WordSetsService,
+    private readonly words: WordsService,
   ) {}
 
   @Post(':id/words')
   addWord(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() createWordDto: CreateWordDto,
-    @Req() req: RequestWithUser,
+    @Param('id', ParseIdPipe) id: number,
+    @Body() dto: CreateWordDto,
+    @Req() request: RequestWithUser,
   ) {
-    const userId = req.user.userId;
-    return this.wordsService.create(createWordDto, id, userId);
+    return this.words.create(dto, id, request.user.userId);
   }
 
   @Post()
-  create(
-    @Body() createWordSetDto: CreateWordSetDto,
-    @Req() req: RequestWithUser,
-  ) {
-    return this.wordSetsService.create(createWordSetDto, req.user.userId);
+  create(@Body() dto: CreateWordSetDto, @Req() request: RequestWithUser) {
+    return this.sets.create(dto, request.user.userId);
   }
 
   @Get()
-  findAll(@Req() req: RequestWithUser) {
-    return this.wordSetsService.findAll(req.user.userId);
+  async findAll(
+    @Req() request: RequestWithUser,
+    @Query() page: PaginationDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const sets = await this.sets.findAll(request.user.userId, page);
+    if (sets.length === page.limit)
+      response.setHeader('X-Next-Offset', page.offset + page.limit);
+    return sets;
   }
 
   @Get(':id')
-  async getWordSet(
-    @Param('id') id: string,
-    @Query('offset') offset: string = '0',
-    @Query('limit') limit: string = '100',
-    @Req() req,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
+  findOne(
+    @Param('id', ParseIdPipe) id: number,
+    @Req() request: RequestWithUser,
+    @Query() query: WordSetQueryDto,
   ) {
-    return this.wordSetsService.findOne(
-      Number(id),
-      req.user.userId,
-      Number(offset),
-      Number(limit),
-      search,
-      status,
-    );
+    return this.sets.findOne(id, request.user.userId, query);
   }
 
   @Patch(':id')
   update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() updateWordSetDto: UpdateWordSetDto,
-    @Req() req: RequestWithUser,
+    @Param('id', ParseIdPipe) id: number,
+    @Body() dto: UpdateWordSetDto,
+    @Req() request: RequestWithUser,
   ) {
-    return this.wordSetsService.update(id, updateWordSetDto, req.user.userId);
+    return this.sets.update(id, dto, request.user.userId);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
-    return this.wordSetsService.remove(id, req.user.userId);
+  remove(
+    @Param('id', ParseIdPipe) id: number,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.sets.remove(id, request.user.userId);
   }
 }

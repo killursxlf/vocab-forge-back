@@ -1,104 +1,83 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/pagination.dto';
 import { CreateWordSetDto } from './dto/create-word-set.dto';
 import { UpdateWordSetDto } from './dto/update-word-set.dto';
-import { Prisma } from '@prisma/client';
-
-type WordStatus = 'NEW' | 'LEARNING' | 'LEARNED';
+import { WordSetQueryDto } from './dto/word-set-query.dto';
 
 @Injectable()
 export class WordSetsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  create(createWordSetDto: CreateWordSetDto, userId: number) {
+  create(dto: CreateWordSetDto, userId: number) {
     return this.prisma.wordSet.create({
       data: {
-        ...createWordSetDto,
-        userId: userId,
+        title: dto.title,
+        customColumns: dto.customColumns as Prisma.InputJsonValue | undefined,
+        userId,
       },
     });
   }
 
-  findAll(userId: number) {
+  findAll(userId: number, page: PaginationDto = new PaginationDto()) {
     return this.prisma.wordSet.findMany({
-      where: {
-        userId: userId,
-      },
-      orderBy: {
-        id: 'desc',
-      },
+      where: { userId },
+      orderBy: { id: 'desc' },
+      skip: page.offset,
+      take: page.limit,
     });
   }
 
   async findOne(
     id: number,
     userId: number,
-    offset = 0,
-    limit = 100,
-    search?: string,
-    status?: string,
+    query: WordSetQueryDto = new WordSetQueryDto(),
   ) {
     const wordSet = await this.prisma.wordSet.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        title: true,
-        customColumns: true,
-        userId: true,
-      },
+      where: { id, userId },
     });
-
-    if (!wordSet || wordSet.userId !== userId) {
-      throw new NotFoundException('Word set not found');
-    }
-
-    const whereClause: Prisma.WordWhereInput = {
+    if (!wordSet) throw new NotFoundException('Word set not found');
+    const where: Prisma.WordWhereInput = {
       wordSetId: id,
+      status: query.status,
+      ...(query.search
+        ? {
+            OR: [
+              { original: { contains: query.search, mode: 'insensitive' } },
+              { translation: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
-
-    if (status) {
-      whereClause.status = status as WordStatus;
-    }
-
-    if (search) {
-      whereClause.OR = [
-        { original: { contains: search, mode: 'insensitive' } },
-        { translation: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-
-    const [words, totalCount] = await Promise.all([
+    const [words, total] = await Promise.all([
       this.prisma.word.findMany({
-        where: whereClause,
-        orderBy: { createdAt: 'asc' },
-        skip: offset,
-        take: limit,
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip: query.offset,
+        take: query.limit,
       }),
-      this.prisma.word.count({
-        where: whereClause,
-      }),
+      this.prisma.word.count({ where }),
     ]);
-
     return {
       ...wordSet,
       words,
-      total: totalCount,
-      hasMore: offset + limit < totalCount,
+      total,
+      hasMore: query.offset + query.limit < total,
     };
   }
 
-  async update(id: number, updateWordSetDto: UpdateWordSetDto, userId: number) {
-    await this.findOne(id, userId, 0, 0);
+  update(id: number, dto: UpdateWordSetDto, userId: number) {
     return this.prisma.wordSet.update({
-      where: { id },
-      data: updateWordSetDto,
+      where: { id, userId },
+      data: {
+        title: dto.title,
+        customColumns: dto.customColumns as Prisma.InputJsonValue | undefined,
+      },
     });
   }
 
-  async remove(id: number, userId: number) {
-    await this.findOne(id, userId, 0, 0);
-    return this.prisma.wordSet.delete({
-      where: { id },
-    });
+  remove(id: number, userId: number) {
+    return this.prisma.wordSet.delete({ where: { id, userId } });
   }
 }

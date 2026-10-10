@@ -1,146 +1,88 @@
 # Vocab Forge Backend
 
-API приложения для изучения слов: наборы слов с пользовательскими колонками, карточки для тренировки и отслеживание прогресса.
+NestJS 11 API for vocabulary sets, custom flashcards, and learning progress. Authentication uses HttpOnly JWT cookies or Google OAuth. Prisma ORM 6.19 connects to your hosted **Prisma Postgres** database; a separate PostgreSQL server is optional for local testing.
 
-Стек: TypeScript, NestJS 11, Prisma ORM 6, PostgreSQL в облаке Prisma. Авторизация через email/пароль и Google OAuth, с JWT в HttpOnly cookie. Пароли хешируются с bcrypt.
+## Setup
 
-## Запуск для разработки
+Use Node.js 22 LTS (22.12+) or Node.js 24 and npm. `package-lock.json` is the dependency source for CI and Docker.
 
-Понадобятся Node.js 22 и доступ к базе проекта в Prisma Console. Локальную базу поднимать не требуется.
+1. Copy `.env.example` to `.env`.
+2. Generate pooled and direct TCP connection strings for the existing database in Prisma Console. Set `DATABASE_URL` to pooled and `DIRECT_URL` to direct; both must point to the same database.
+3. Generate a JWT secret locally and save it in `JWT_SECRET`:
 
-### 1. Установить зависимости
+   ```sh
+   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   ```
 
-```sh
-npm install
-```
+4. Install dependencies, generate the client, and migrate the intended development database:
 
-Если используете Bun, вместо этой команды можно выполнить `bun install`.
+   ```sh
+   npm ci --ignore-scripts
+   npm run db:generate
+   npm run db:migrate
+   npm run start:dev
+   ```
 
-### 2. Создать `.env` в корне проекта
+The API defaults to `http://localhost:3000`; the frontend defaults to `http://localhost:8080`. Adjust `FRONTEND_URL` and `CORS_ORIGINS` together. [.env.example](.env.example) documents Google credentials, proxy trust, auth quotas, and learning thresholds. Leave both Google credentials empty to disable Google sign-in.
 
-```dotenv
-DATABASE_URL="<строка подключения к базе проекта из Prisma Console>"
-JWT_SECRET="<случайный секрет>"
-PORT=3000
-FRONTEND_URL="http://localhost:8080"
+Your database stays on Prisma's servers. Replacing the old hosted `prisma+postgres://accelerate.prisma-data.net` URL changes the transport, not the database or its data. That connection retires on **December 1, 2026**; see the [official migration guide](https://www.prisma.io/docs/postgres/database/switch-from-accelerate). Production requires TCP URLs. Legacy URLs are temporarily accepted in development, but the SQL-based rate limiter requires TCP before authentication routes can work.
 
-GOOGLE_CLIENT_ID="<Google OAuth client ID>"
-GOOGLE_CLIENT_SECRET="<Google OAuth client secret>"
-GOOGLE_CALLBACK_URL="http://localhost:3000/auth/google/callback"
-```
+Never commit `.env`, connection strings, or JWT secrets. `dist/` is generated and ignored.
 
-`DATABASE_URL` используется и приложением, и Prisma CLI. Скопируйте строку подключения к существующей базе из Prisma Console. `.env` исключён из Git; ключи и строку подключения не добавляйте в репозиторий.
+## API
 
-Сгенерировать `JWT_SECRET`:
+Authenticated requests need the `access_token` cookie; browsers must use `credentials: 'include'`. Mutations use JSON and an allowed frontend Origin; JSON clients without an Origin are also supported. Production cookies are HttpOnly/Secure/SameSite=None; development uses SameSite=Lax.
 
-```sh
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+| Endpoint                          | Behavior                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST /users/register`            | Creates an account from `name`, `email`, `password`; returns public fields.           |
+| `POST /auth/login`                | Sets a one-day authentication cookie.                                                 |
+| `GET /auth/profile`               | Returns `userId`, `email`, `name`.                                                    |
+| `GET/PATCH /users/me`             | Reads or edits the authenticated account. An email change requires `currentPassword`. |
+| `POST /users/change-password`     | Accepts `currentPassword`, `newPassword`; revokes all sessions.                       |
+| `POST /auth/logout`               | Revokes all sessions and clears the cookie; send JSON `{}`.                           |
+| `DELETE /users/me`                | Deletes the account and dependents; send JSON `{}`.                                   |
+| `GET /auth/google`                | Starts Google sign-in with signed, expiring OAuth state.                              |
+| `GET /auth/google/link`           | Requires login; explicitly links Google to the current account.                       |
+| `GET /auth/google/callback`       | Verifies state and Google email before setting a cookie.                              |
+| `GET/POST /word-sets`             | Lists owned sets or creates one.                                                      |
+| `GET/PATCH/DELETE /word-sets/:id` | Reads, edits, or deletes an owned set.                                                |
+| `POST /word-sets/:id/words`       | Creates a word in an owned set.                                                       |
+| `PATCH/DELETE /words/:id`         | Edits or deletes an owned word.                                                       |
+| `POST /words/:id/answer`          | Accepts `knows: boolean`, optional UUID `answerId`; records progress atomically.      |
+| `GET/PUT /card-settings`          | Reads or updates the user's card setup.                                               |
+| `POST /card-settings/count`       | Requires nonempty `selectedTables`, `selectedStatuses` arrays.                        |
+| `GET /card-settings/cards`        | Returns a page with selected custom front, back, and hint values.                     |
+| `GET /health/live`                | Process liveness.                                                                     |
+| `GET /health/ready`               | Database readiness, or 503 when unavailable.                                          |
 
-Сохраните результат в `.env`. Смена секрета делает ранее выданные токены недействительными.
+Public `/users` and `/users/:id` routes have been removed. Profile patches reject `password`, `googleId`, and unknown fields. Passwords must be 6–72 characters and no more than 72 UTF-8 bytes.
 
-GoogleStrategy подключена при каждом запуске, поэтому `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET` должны быть непустыми. Для разработки без входа через Google можно поставить `local-placeholder` в оба поля. Для работающего Google OAuth нужны настоящие credentials, а `GOOGLE_CALLBACK_URL` должен быть зарегистрирован как разрешённый redirect URI в настройках OAuth клиента.
+Google login does not automatically merge accounts by email: ordinary Google sign-in returns 409 if the email belongs to an existing local account. Sign in locally first, then use `/auth/google/link`. Google-only accounts cannot change email or set a password through profile patches.
 
-### 3. Сгенерировать Prisma Client и запустить API
+Retry an answer using the same `answerId` after a network failure; reuse with different contents returns 409. Requests without an ID each count as new answers. Custom field patches merge keys; `customFields: null` clears the object. Deleting a set/account cascades through associated words and review events.
 
-```sh
-npx prisma generate
-npm run start:dev
-```
+### Pagination and errors
 
-По умолчанию API доступен по адресу `http://localhost:3000`, фронтенд — `http://localhost:8080`. Приложение подключается к базе при запуске, поэтому `DATABASE_URL` должен быть действительным.
+Lists, set-detail words, and training cards accept `offset` (default 0, maximum 100000) and `limit` (default/maximum 100). Lists/cards keep array responses and expose `X-Next-Offset` for full pages; continue until absent, allowing a final empty page. Set details include `words`, `total`, `hasMore` and optional `search`/`status`.
 
-## База данных и миграции
+Table selectors accept `all` or positive IDs; statuses accept `all`, `NEW`, `LEARNING`, `LEARNED`. Invalid IDs/filters, unknown fields, and null nonnullable values return 400. JSON bodies over 64 KB return 413. Missing/inaccessible resources return 404 and database conflicts return 409. Internal errors hide database details.
 
-Схема находится в `prisma/schema.prisma`, история миграций — в `prisma/migrations/`. Основные модели: `User`, `WordSet`, `Word`, `CardSettings`, `ReviewEvent`.
-
-Если существующая база уже соответствует проекту, для локального запуска достаточно генерации клиента. Проверить состояние миграций:
-
-```sh
-npx prisma migrate status
-```
-
-Для новой базы или применения ожидающих миграций проекта:
-
-```sh
-npx prisma migrate deploy
-```
-
-Команда изменяет базу, указанную в `DATABASE_URL`. При изменении схемы создавайте миграции на отдельной базе для разработки:
-
-```sh
-npx prisma migrate dev --name describe_change
-npx prisma generate
-```
-
-Для просмотра данных:
+## Verification
 
 ```sh
-npx prisma studio
-```
-
-Подробнее: [миграции в Prisma ORM 6](https://www.prisma.io/docs/orm/v6/prisma-migrate/workflows/development-and-production).
-
-## Авторизация и фронтенд
-
-Регистрация: `POST /users/register` с JSON `{ "email": "user@example.com", "password": "example-password", "name": "User" }`. Вход: `POST /auth/login` с email и паролем. Google OAuth начинается с `GET /auth/google`.
-
-При входе сервер устанавливает cookie `access_token`. JWT действует один день. Защищённые маршруты читают токен из cookie; запросы с фронтенда должны отправлять cookies (`credentials: 'include'` для fetch или `withCredentials: true` для Axios).
-
-Cookie настроена с `HttpOnly`, `Secure` и `SameSite=None`. Для развёртывания используйте HTTPS. Если авторизация по локальному HTTP не работает, проверьте, принимает ли браузер Secure cookie для localhost.
-
-CORS настроен в `src/main.ts`. Сейчас разрешены `http://localhost:8080`, `https://vocab-forge-front.vercel.app` и `http://192.168.178.60:8080`. Если адрес фронтенда меняется, обновите этот список. `FRONTEND_URL` задаёт адрес возврата и получателя сообщений после Google OAuth, но не меняет CORS.
-
-## Основные маршруты
-
-| Метод | Маршрут | Назначение |
-| --- | --- | --- |
-| POST | `/users/register` | Регистрация |
-| POST | `/auth/login` | Вход по email и паролю |
-| POST | `/auth/logout` | Выход |
-| GET | `/auth/profile` | Данные из JWT |
-| GET | `/auth/google` | Вход через Google |
-| GET | `/auth/google/callback` | Callback Google OAuth |
-| GET, PATCH | `/users/me` | Просмотр и изменение профиля |
-| POST | `/users/change-password` | Смена пароля |
-| GET, POST | `/word-sets` | Список и создание наборов слов |
-| GET, PATCH, DELETE | `/word-sets/:id` | Просмотр, изменение и удаление набора |
-| POST | `/word-sets/:id/words` | Добавление слова |
-| PATCH, DELETE | `/words/:id` | Изменение и удаление слова |
-| POST | `/words/:id/answer` | Ответ на карточку: `{ "knows": true }` |
-| GET, PUT | `/card-settings` | Получение и сохранение настроек карточек |
-| POST | `/card-settings/count` | Количество слов по выбранным настройкам |
-| GET | `/card-settings/cards` | Карточки по сохранённым настройкам |
-
-`GET /word-sets/:id` поддерживает параметры `offset` (по умолчанию 0), `limit` (100), `search` и `status`. Форматы тел запросов описаны в DTO соответствующих модулей в `src/`.
-
-## Прогресс обучения
-
-Статусы слова: `NEW`, `LEARNING`, `LEARNED`. Правильный ответ переводит новое слово в обучение; серия правильных ответов переводит его в изученные. Серия ошибок может вернуть изученное слово в обучение. Для каждого слова сохраняются счётчики ответов и время последнего повторения.
-
-Необязательные переменные `.env`:
-
-| Переменная | По умолчанию | Назначение |
-| --- | --- | --- |
-| `LEARN_STREAK_THRESHOLD` | `3` | Правильных ответов подряд для статуса `LEARNED` |
-| `DOWNGRADE_ON_MISS` | `true` | Возвращать изученные слова в обучение при ошибках |
-| `DOWNGRADE_MISS_THRESHOLD` | `3` | Ошибок подряд для возврата в `LEARNING` |
-
-## Сборка и проверки
-
-```sh
+npm run lint:check
+npm run typecheck
+npm test -- --runInBand
+npm run test:e2e -- --runInBand
+npm audit
 npm run build
-npm run start:prod
 ```
 
-`build` создаёт папку `dist/`, из которой запускается production сервер. Она исключена из Git, поэтому при развёртывании нужно установить зависимости, сгенерировать Prisma Client и выполнить сборку. Ожидающие миграции применяются отдельно через `npx prisma migrate deploy`.
+Unit/HTTP tests use fixtures and never connect to your real database. Integration tests require an explicitly configured local PostgreSQL 16 database ending in `_test`. Apply migrations with its `DATABASE_URL`/`DIRECT_URL`, set `TEST_DATABASE_URL` to the same database, and run `npm run test:integration`.
 
-```sh
-npm test
-npm run test:e2e
-npm run test:cov
-npm run lint
-npm run format
-```
+Integration tests cover concurrent answers, duplicate IDs, custom field patches, ownership, cascades, shared quotas, and session revocation across independent Prisma clients. GitHub Actions also checks migration/schema drift, dependency advisories, and Docker startup.
 
-E2E-тесты поднимают `AppModule` и требуют настроенного окружения и доступной базы. `lint` и `format` изменяют файлы, исправляя стиль кода.
+## Deployment
+
+See the [production runbook](docs/production.md) for release order, Docker images, frontend changes, connection budgets, backups, and monitoring. The runtime image runs as `node` with compiled code, a generated Linux Prisma client, and production dependencies. Run migrations separately once per release.

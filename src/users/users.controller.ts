@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
   Patch,
   Post,
   Req,
@@ -11,72 +10,50 @@ import {
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { UsersService } from './users.service';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import type { Request } from 'express';
 import { ChangePasswordDto } from './dto/change-password.dto';
-
-interface RequestWithUser extends Request {
-  user: {
-    userId: number;
-    email: string;
-  };
-}
+import { UsersService } from './users.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthRateLimitGuard } from '../security/auth-rate-limit.guard';
+import type { RequestWithUser } from '../auth/interfaces/request-with-user.interface';
 
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post('register')
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  @UseGuards(AuthRateLimitGuard)
+  create(@Body() dto: CreateUserDto) {
+    return this.usersService.create(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('me')
-  getProfile(@Req() req: RequestWithUser) {
-    return this.usersService.findOneById(req.user.userId);
+  @UseGuards(JwtAuthGuard)
+  getProfile(@Req() request: RequestWithUser) {
+    return this.usersService.findOneById(request.user.userId);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('me')
-  updateProfile(
-    @Req() req: RequestWithUser,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
-    return this.usersService.update(req.user.userId, updateUserDto);
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
+  updateProfile(@Req() request: RequestWithUser, @Body() dto: UpdateUserDto) {
+    return this.usersService.update(request.user.userId, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('change-password')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
   changePassword(
-    @Req() req: RequestWithUser,
-    @Body() changePasswordDto: ChangePasswordDto,
+    @Req() request: RequestWithUser,
+    @Body() dto: ChangePasswordDto,
   ) {
     return this.usersService.changePassword(
-      req.user.userId,
-      changePasswordDto.currentPassword,
-      changePasswordDto.newPassword,
+      request.user.userId,
+      dto.currentPassword,
+      dto.newPassword,
     );
   }
 
-  @Get()
-  findAll() {
-    return this.usersService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOneById(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(+id, updateUserDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(+id);
+  @Delete('me')
+  @UseGuards(JwtAuthGuard)
+  remove(@Req() request: RequestWithUser) {
+    return this.usersService.remove(request.user.userId);
   }
 }

@@ -1,0 +1,71 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vocab_forge_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test:test@localhost:5432/vocab_forge_test
+      DIRECT_URL: postgresql://test:test@localhost:5432/vocab_forge_test
+      TEST_DATABASE_URL: postgresql://test:test@localhost:5432/vocab_forge_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run db:generate
+      - run: npm run lint:check
+      - run: npm run typecheck
+      - run: npm test -- --runInBand
+      - run: npm run test:e2e -- --runInBand
+      - run: npm run db:migrate
+      - run: npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - run: npm run test:integration
+      - run: npm audit
+      - run: npm run build
+      - run: docker build --target migrations -t vocab-forge-migrations:ci .
+      - run: docker build -t vocab-forge-back:ci .
+      - name: Smoke test the production image
+        env:
+          JWT_SECRET: ci-only-random-looking-secret-at-least-32-characters
+          FRONTEND_URL: https://frontend.example.com
+          CORS_ORIGINS: https://frontend.example.com
+        run: |
+          docker run -d --name backend-ci --network host -e DATABASE_URL -e DIRECT_URL -e JWT_SECRET -e FRONTEND_URL -e CORS_ORIGINS vocab-forge-back:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/health/ready; then exit 0; fi
+            sleep 1
+          done
+          docker logs backend-ci
+          exit 1
+      - name: Stop the smoke test
+        if: always()
+        run: docker rm -f backend-ci 2>/dev/null || true
