@@ -52,7 +52,7 @@ export class CardSettingsController {
     @Body() dto: CardFiltersDto,
   ) {
     return {
-      data: { count: await this.settings.countWords(request.user.userId, dto) },
+      data: await this.settings.getReviewSummary(request.user.userId, dto),
     };
   }
 

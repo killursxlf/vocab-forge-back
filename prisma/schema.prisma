@@ -49,6 +49,9 @@ model Word {
   lastReviewedAt DateTime?
   learnedAt      DateTime?
 
+  reviewBox    Int      @default(0)
+  nextReviewAt DateTime @default(now())
+
   missStreak Int @default(0)
 
   createdAt    DateTime @default(now())
@@ -60,6 +63,7 @@ model Word {
 
   @@index([wordSetId, status, lastReviewedAt])
   @@index([wordSetId, createdAt, id])
+  @@index([wordSetId, nextReviewAt, id])
 }
 
 model CardSettings {

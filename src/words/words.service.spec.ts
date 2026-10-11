@@ -47,6 +47,7 @@ describe('word ownership and progress', () => {
       successStreak: 2,
       missStreak: 0,
       learnedAt: null,
+      reviewBox: 2,
       customFields: { example: 'keep', phonetic: 'old' },
     });
     database.reviewEvent.findUnique.mockResolvedValue(null);
@@ -59,7 +60,11 @@ describe('word ownership and progress', () => {
       successStreak: 3,
       timesSeen: { increment: 1 },
       timesCorrect: { increment: 1 },
+      reviewBox: 3,
     });
+    expect(result.nextReviewAt).toEqual(
+      new Date(result.lastReviewedAt!.getTime() + 7 * 86400000),
+    );
     expect(prisma.$transaction.mock.calls[0][1]?.isolationLevel).toBe(
       'Serializable',
     );
@@ -75,11 +80,13 @@ describe('word ownership and progress', () => {
       successStreak: 3,
       missStreak: 2,
       learnedAt: new Date(),
+      reviewBox: 3,
     });
     await expect(service.submitAnswer(1, false, 2)).resolves.toMatchObject({
       status: WordStatus.LEARNING,
       learnedAt: null,
       missStreak: 0,
+      reviewBox: 0,
     });
   });
 
@@ -154,5 +161,16 @@ describe('word ownership and progress', () => {
       example: 'keep',
       phonetic: 'new',
     });
+    expect(database.word.update.mock.calls[0][0].data).not.toHaveProperty(
+      'nextReviewAt',
+    );
+  });
+
+  it('resets the schedule when the user explicitly changes status', async () => {
+    await service.update(1, { status: WordStatus.NEW }, 2);
+    const data = database.word.update.mock.calls[0][0].data;
+    expect(data.reviewBox).toBe(0);
+    expect(data.nextReviewAt).toBeInstanceOf(Date);
+    expect(data.successStreak).toBe(0);
   });
 });

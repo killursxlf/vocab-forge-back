@@ -8,6 +8,7 @@ import { Prisma, WordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWordDto } from './dto/create-word.dto';
 import { UpdateWordDto } from './dto/update-word.dto';
+import { scheduleReview } from './review-schedule';
 
 function writableWord(dto: UpdateWordDto) {
   return {
@@ -23,6 +24,8 @@ function writableWord(dto: UpdateWordDto) {
           learnedAt: dto.status === WordStatus.LEARNED ? new Date() : null,
           successStreak: 0,
           missStreak: 0,
+          reviewBox: 0,
+          nextReviewAt: new Date(),
         }
       : {}),
   };
@@ -155,6 +158,7 @@ export class WordsService {
                 missStreak,
                 learnedAt,
                 lastReviewedAt: now,
+                ...scheduleReview(word.reviewBox, knows, now),
                 timesSeen: { increment: 1 },
                 timesCorrect: { increment: knows ? 1 : 0 },
               },

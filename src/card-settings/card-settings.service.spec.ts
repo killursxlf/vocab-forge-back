@@ -13,10 +13,15 @@ describe('card settings and training pages', () => {
     word: {
       findMany: jest.fn<Promise<unknown[]>, [Prisma.WordFindManyArgs]>(),
       count: jest.fn<Promise<number>, [Prisma.WordCountArgs]>(),
+      findFirst: jest.fn<
+        Promise<{ nextReviewAt: Date } | null>,
+        [Prisma.WordFindFirstArgs]
+      >(),
     },
   };
   const service = new CardSettingsService(prisma as unknown as PrismaService);
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-11T12:00:00.000Z'));
     prisma.cardSettings.findUnique.mockResolvedValue({
       frontKey: 'definition',
       backKey: 'example',
@@ -36,6 +41,7 @@ describe('card settings and training pages', () => {
       },
     ]);
   });
+  afterEach(() => jest.useRealTimers());
 
   it('preserves custom front, back and hint values without returning unused fields', async () => {
     const cards = await service.getTrainingCards(2);
@@ -80,6 +86,7 @@ describe('card settings and training pages', () => {
     expect(counted.where).toEqual(fetched.where);
     expect(counted.where).toEqual({
       wordSet: { userId: 2 },
+      nextReviewAt: { lte: new Date() },
       AND: [
         { customFields: { path: ['definition'], not: Prisma.AnyNull } },
         { customFields: { path: ['definition'], not: '' } },
@@ -110,5 +117,47 @@ describe('card settings and training pages', () => {
       wordSet: { userId: 2, id: { in: [] } },
       status: { in: [] },
     });
+  });
+
+  it('reports due, total and the earliest future review under the same filters', async () => {
+    prisma.word.count.mockResolvedValueOnce(2).mockResolvedValueOnce(5);
+    const nextReviewAt = new Date('2026-10-12T12:00:00.000Z');
+    prisma.word.findFirst.mockResolvedValueOnce({ nextReviewAt });
+    const filters = {
+      frontKey: 'original',
+      backKey: 'translation',
+      selectedTables: ['3'],
+      selectedStatuses: ['all'],
+    };
+    await expect(service.getReviewSummary(2, filters)).resolves.toEqual({
+      count: 2,
+      total: 5,
+      nextReviewAt,
+    });
+    expect(prisma.word.count.mock.calls[0][0].where).toMatchObject({
+      wordSet: { userId: 2, id: { in: [3] } },
+      nextReviewAt: { lte: new Date() },
+    });
+    expect(prisma.word.count.mock.calls[1][0].where).not.toHaveProperty(
+      'nextReviewAt',
+    );
+    expect(prisma.word.findFirst.mock.calls[0][0]).toMatchObject({
+      where: {
+        wordSet: { userId: 2, id: { in: [3] } },
+        nextReviewAt: { gt: new Date() },
+      },
+      orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+    });
+  });
+
+  it('orders due cards before newly due ones without excluding learned words', async () => {
+    await service.getTrainingCards(2);
+    expect(prisma.word.findMany.mock.calls[0][0]).toMatchObject({
+      where: { nextReviewAt: { lte: new Date() } },
+      orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+    });
+    expect(prisma.word.findMany.mock.calls[0][0].where).not.toHaveProperty(
+      'status',
+    );
   });
 });
