@@ -15,14 +15,12 @@ import {
 
 export class CardFiltersDto {
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(4)
   @ArrayUnique()
   @IsIn(['all', 'NEW', 'LEARNING', 'LEARNED'], { each: true })
   selectedStatuses: string[];
 
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(100)
   @ArrayUnique()
   @IsString({ each: true })

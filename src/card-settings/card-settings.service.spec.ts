@@ -10,7 +10,10 @@ describe('card settings and training pages', () => {
         Promise.resolve(args),
       ),
     },
-    word: { findMany: jest.fn() },
+    word: {
+      findMany: jest.fn<Promise<unknown[]>, [Prisma.WordFindManyArgs]>(),
+      count: jest.fn<Promise<number>, [Prisma.WordCountArgs]>(),
+    },
   };
   const service = new CardSettingsService(prisma as unknown as PrismaService);
   beforeEach(() => {
@@ -61,6 +64,29 @@ describe('card settings and training pages', () => {
     });
   });
 
+  it('uses identical side, ownership and status filters for counts and cards without requiring a hint', async () => {
+    const filters = {
+      frontKey: 'definition',
+      backKey: 'example',
+      hintKey: 'missing',
+      selectedTables: ['all'],
+      selectedStatuses: ['all'],
+    };
+    prisma.cardSettings.findUnique.mockResolvedValue(filters);
+    await service.countWords(2, filters);
+    await service.getTrainingCards(2);
+    const counted = prisma.word.count.mock.calls[0][0];
+    const fetched = prisma.word.findMany.mock.calls[0][0];
+    expect(counted.where).toEqual(fetched.where);
+    expect(counted.where).toEqual({
+      wordSet: { userId: 2 },
+      AND: [
+        { customFields: { path: ['definition'], gt: '' } },
+        { customFields: { path: ['example'], gt: '' } },
+      ],
+    });
+  });
+
   it('keeps authenticated ownership in both upsert branches', async () => {
     await service.updateSettings(
       2,
@@ -78,10 +104,9 @@ describe('card settings and training pages', () => {
       selectedStatuses: ['invalid'],
     });
     await service.getTrainingCards(2);
-    expect(prisma.word.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { wordSet: { userId: 2, id: { in: [] } }, status: { in: [] } },
-      }),
-    );
+    expect(prisma.word.findMany.mock.calls[0][0].where).toMatchObject({
+      wordSet: { userId: 2, id: { in: [] } },
+      status: { in: [] },
+    });
   });
 });
