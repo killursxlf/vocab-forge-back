@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ExecutionContext,
   Injectable,
   ServiceUnavailableException,
@@ -8,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AuthGuard } from '@nestjs/passport';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { isUUID } from 'class-validator';
 import type { Response } from 'express';
 import type { RequestWithUser } from './interfaces/request-with-user.interface';
 
@@ -39,6 +41,7 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
         throw new UnauthorizedException('Invalid OAuth state');
       let payload: {
         nonce?: unknown;
+        popupAttempt?: unknown;
         linkUserId?: number;
         linkTokenVersion?: number;
       };
@@ -53,6 +56,14 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
       }
       if (typeof payload.nonce !== 'string')
         throw new UnauthorizedException('Invalid OAuth state');
+      if (payload.popupAttempt !== undefined) {
+        if (
+          typeof payload.popupAttempt !== 'string' ||
+          !isUUID(payload.popupAttempt, '4')
+        )
+          throw new UnauthorizedException('Invalid popup attempt');
+        request.googlePopupAttempt = payload.popupAttempt;
+      }
       request.googleLinkUserId = payload.linkUserId;
       request.googleLinkTokenVersion = payload.linkTokenVersion;
     }
@@ -63,10 +74,17 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     if (request.path.endsWith('/callback')) return {};
     const response = context.switchToHttp().getResponse<Response>();
+    const popupAttempt = request.query.popupAttempt;
+    if (
+      popupAttempt !== undefined &&
+      (typeof popupAttempt !== 'string' || !isUUID(popupAttempt, '4'))
+    )
+      throw new BadRequestException('Invalid popup attempt');
     const linking = request.path.endsWith('/link');
     const state = this.jwt.sign(
       {
         nonce: randomBytes(32).toString('hex'),
+        ...(popupAttempt ? { popupAttempt } : {}),
         ...(linking
           ? {
               linkUserId: request.user.userId,

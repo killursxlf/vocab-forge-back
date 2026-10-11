@@ -3,6 +3,7 @@ import type { User } from './user.interface';
 
 export interface RequestWithUser extends Request {
   user: User;
+  googlePopupAttempt?: string;
   googleLinkUserId?: number;
   googleLinkTokenVersion?: number;
 }
