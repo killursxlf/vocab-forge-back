@@ -81,8 +81,10 @@ describe('card settings and training pages', () => {
     expect(counted.where).toEqual({
       wordSet: { userId: 2 },
       AND: [
-        { customFields: { path: ['definition'], gt: '' } },
-        { customFields: { path: ['example'], gt: '' } },
+        { customFields: { path: ['definition'], not: Prisma.AnyNull } },
+        { customFields: { path: ['definition'], not: '' } },
+        { customFields: { path: ['example'], not: Prisma.AnyNull } },
+        { customFields: { path: ['example'], not: '' } },
       ],
     });
   });

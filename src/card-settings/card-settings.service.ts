@@ -45,12 +45,17 @@ function wordFilter(
       ...(selectedTables.includes('all') ? {} : { id: { in: ids } }),
     },
     ...(selectedStatuses.includes('all') ? {} : { status: { in: statuses } }),
-    AND: [...new Set([frontKey, backKey])].map((key): Prisma.WordWhereInput => {
-      if (key === 'word' || key === 'original')
-        return { original: { not: '' } };
-      if (key === 'translation') return { translation: { not: '' } };
-      return { customFields: { path: [key], gt: '' } };
-    }),
+    AND: [...new Set([frontKey, backKey])].flatMap(
+      (key): Prisma.WordWhereInput[] => {
+        if (key === 'word' || key === 'original')
+          return [{ original: { not: '' } }];
+        if (key === 'translation') return [{ translation: { not: '' } }];
+        return [
+          { customFields: { path: [key], not: Prisma.AnyNull } },
+          { customFields: { path: [key], not: '' } },
+        ];
+      },
+    ),
   };
 }
 
