@@ -73,6 +73,16 @@ export class AuthController {
       this.auth.login(request.user).access_token,
       { ...this.cookieOptions(), maxAge: 86400000 },
     );
+    if (request.googlePopupAttempt) {
+      const callback = new URL(
+        '/auth/google/popup',
+        this.config.getOrThrow<string>('FRONTEND_URL'),
+      );
+      callback.searchParams.set('attempt', request.googlePopupAttempt);
+      callback.searchParams.set('complete', '1');
+      response.redirect(callback.href);
+      return;
+    }
     const origin = JSON.stringify(
       this.config.getOrThrow<string>('FRONTEND_URL'),
     ).replace(/</g, '\\u003c');
