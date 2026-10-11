@@ -51,8 +51,8 @@ Authenticated requests need the `access_token` cookie; browsers must use `creden
 | `PATCH/DELETE /words/:id`         | Edits or deletes an owned word.                                                       |
 | `POST /words/:id/answer`          | Accepts `knows: boolean`, optional UUID `answerId`; records progress atomically.      |
 | `GET/PUT /card-settings`          | Reads or updates the user's card setup.                                               |
-| `POST /card-settings/count`       | Requires nonempty `selectedTables`, `selectedStatuses` arrays.                        |
-| `GET /card-settings/cards`        | Returns a page with selected custom front, back, and hint values.                     |
+| `POST /card-settings/count`       | Returns due count, matching total, and earliest future review for selected filters.   |
+| `GET /card-settings/cards`        | Returns due cards in review order with selected front, back, and hint values.          |
 | `GET /health/live`                | Process liveness.                                                                     |
 | `GET /health/ready`               | Database readiness, or 503 when unavailable.                                          |
 
