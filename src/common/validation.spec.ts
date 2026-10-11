@@ -47,6 +47,16 @@ describe('request validation', () => {
       ),
     ).rejects.toThrow();
   });
+  it('accepts an explicit empty selection without weakening array validation', async () => {
+    for (const metatype of [CardFiltersDto, UpdateCardSettingsDto]) {
+      await expect(
+        pipe.transform(
+          { selectedTables: [], selectedStatuses: [] },
+          { type: 'body', metatype },
+        ),
+      ).resolves.toMatchObject({ selectedTables: [], selectedStatuses: [] });
+    }
+  });
   it('rejects invalid paging and enum values', async () => {
     for (const query of [
       { limit: '100000' },

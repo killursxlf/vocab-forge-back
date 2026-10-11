@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { WordsService } from '../src/words/words.service';
 import { UsersService } from '../src/users/users.service';
 import { WordSetsService } from '../src/word-sets/word-sets.service';
+import { CardSettingsService } from '../src/card-settings/card-settings.service';
 import { AuthRateLimitGuard } from '../src/security/auth-rate-limit.guard';
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -141,6 +142,64 @@ describe('PostgreSQL migrations and concurrent writes', () => {
     expect(
       (await first.word.findUniqueOrThrow({ where: { id: wordId } })).original,
     ).toBe('one');
+  });
+
+  it('counts and fetches only words with both selected sides, including zero-valued custom fields', async () => {
+    const service = new CardSettingsService(first);
+    const filters = {
+      frontKey: 'definition',
+      backKey: 'translation',
+      hintKey: 'optional',
+      selectedTables: [String(wordSetId)],
+      selectedStatuses: ['all'],
+    };
+    await first.word.createMany({
+      data: [
+        {
+          wordSetId,
+          original: 'filled',
+          translation: 'back',
+          customFields: { definition: 'front' },
+        },
+        {
+          wordSetId,
+          original: 'zero',
+          translation: 'back',
+          customFields: { definition: 0 },
+        },
+        {
+          wordSetId,
+          original: 'empty',
+          translation: 'back',
+          customFields: { definition: '' },
+        },
+        {
+          wordSetId,
+          original: 'null',
+          translation: 'back',
+          customFields: { definition: null },
+        },
+        {
+          wordSetId,
+          original: 'missing',
+          translation: 'back',
+          customFields: {},
+        },
+      ],
+    });
+    await service.updateSettings(userId, filters);
+    expect(await service.countWords(userId, filters)).toBe(2);
+    const cards = await service.getTrainingCards(userId);
+    expect(cards.map((card) => card.original)).toEqual(['filled', 'zero']);
+    expect(await service.countWords(userId + 1000000, filters)).toBe(0);
+    await service.updateSettings(userId, { ...filters, selectedTables: [] });
+    expect(await service.getTrainingCards(userId)).toEqual([]);
+    expect(
+      await service.countWords(userId, { ...filters, selectedTables: [] }),
+    ).toBe(0);
+    expect(
+      await service.countWords(userId, { ...filters, selectedStatuses: [] }),
+    ).toBe(0);
   });
 
   it('cascades set deletion through words and answer history', async () => {

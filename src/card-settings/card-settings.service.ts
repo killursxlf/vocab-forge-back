@@ -29,6 +29,8 @@ function wordFilter(
   userId: number,
   selectedTables: string[],
   selectedStatuses: string[],
+  frontKey = 'original',
+  backKey = 'translation',
 ): Prisma.WordWhereInput {
   const ids = selectedTables
     .filter((id) => /^[1-9][0-9]{0,9}$/.test(id))
@@ -43,6 +45,17 @@ function wordFilter(
       ...(selectedTables.includes('all') ? {} : { id: { in: ids } }),
     },
     ...(selectedStatuses.includes('all') ? {} : { status: { in: statuses } }),
+    AND: [...new Set([frontKey, backKey])].flatMap(
+      (key): Prisma.WordWhereInput[] => {
+        if (key === 'word' || key === 'original')
+          return [{ original: { not: '' } }];
+        if (key === 'translation') return [{ translation: { not: '' } }];
+        return [
+          { customFields: { path: [key], not: Prisma.AnyNull } },
+          { customFields: { path: [key], not: '' } },
+        ];
+      },
+    ),
   };
 }
 
@@ -138,6 +151,8 @@ export class CardSettingsService {
         userId,
         filters.selectedTables,
         filters.selectedStatuses,
+        filters.frontKey,
+        filters.backKey,
       ),
     });
   }
@@ -154,6 +169,8 @@ export class CardSettingsService {
         userId,
         settings?.selectedTables ?? ['all'],
         settings?.selectedStatuses ?? ['all'],
+        settings?.frontKey ?? 'original',
+        settings?.backKey ?? 'translation',
       ),
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       skip: page.offset,
