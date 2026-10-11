@@ -1,82 +1,89 @@
 import {
-  ForbiddenException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma, WordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWordDto } from './dto/create-word.dto';
 import { UpdateWordDto } from './dto/update-word.dto';
-import { WordStatus } from '@prisma/client';
+
+function writableWord(dto: UpdateWordDto) {
+  return {
+    original: dto.original,
+    translation: dto.translation,
+    status: dto.status,
+    customFields:
+      dto.customFields === null
+        ? Prisma.DbNull
+        : (dto.customFields as Prisma.InputJsonValue | undefined),
+    ...(dto.status !== undefined
+      ? {
+          learnedAt: dto.status === WordStatus.LEARNED ? new Date() : null,
+          successStreak: 0,
+          missStreak: 0,
+        }
+      : {}),
+  };
+}
 
 @Injectable()
 export class WordsService {
-  private readonly UP = parseInt(process.env.LEARN_STREAK_THRESHOLD ?? '3', 10);
-  private readonly DOWN_ENABLED =
-    (process.env.DOWNGRADE_ON_MISS ?? 'true') === 'true';
-  private readonly DOWN = parseInt(
-    process.env.DOWNGRADE_MISS_THRESHOLD ?? '3',
-    10,
-  );
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
-  private async checkWordSetOwnership(wordSetId: number, userId: number) {
-    const wordSet = await this.prisma.wordSet.findUnique({
-      where: { id: wordSetId },
+  async create(dto: CreateWordDto, wordSetId: number, userId: number) {
+    const set = await this.prisma.wordSet.findUnique({
+      where: { id: wordSetId, userId },
+      select: { id: true },
     });
-    if (!wordSet || wordSet.userId !== userId) {
-      throw new ForbiddenException('Access to this resource is denied');
-    }
-  }
-
-  async create(
-    createWordDto: CreateWordDto,
-    wordSetId: number,
-    userId: number,
-  ) {
-    await this.checkWordSetOwnership(wordSetId, userId);
+    if (!set) throw new NotFoundException('Word set not found');
     return this.prisma.word.create({
       data: {
-        ...createWordDto,
-        wordSetId: wordSetId,
+        ...writableWord(dto),
+        original: dto.original,
+        translation: dto.translation,
+        wordSetId,
       },
     });
   }
 
-  async update(wordId: number, updateWordDto: UpdateWordDto, userId: number) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Word" WHERE id = ${wordId} FOR UPDATE`;
-      const word = await tx.word.findUnique({
-        where: { id: wordId },
-        include: { wordSet: { select: { userId: true } } },
+  update(id: number, dto: UpdateWordDto, userId: number) {
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT id FROM "Word" WHERE id = ${id}
+        AND "wordSetId" IN (SELECT id FROM "WordSet" WHERE "userId" = ${userId}) FOR UPDATE`;
+      const word = await transaction.word.findUnique({
+        where: { id, wordSet: { userId } },
       });
       if (!word) throw new NotFoundException('Word not found');
-      if (word.wordSet.userId !== userId) throw new ForbiddenException();
       const previous =
         word.customFields &&
         typeof word.customFields === 'object' &&
         !Array.isArray(word.customFields)
           ? word.customFields
           : {};
-      return tx.word.update({
-        where: { id: wordId },
+      return transaction.word.update({
+        where: { id, wordSet: { userId } },
         data: {
-          ...updateWordDto,
-          ...(updateWordDto.customFields
-            ? { customFields: { ...previous, ...updateWordDto.customFields } }
+          ...writableWord(dto),
+          ...(dto.customFields
+            ? {
+                customFields: {
+                  ...previous,
+                  ...dto.customFields,
+                } as Prisma.InputJsonObject,
+              }
             : {}),
         },
       });
     });
   }
 
-  async remove(wordId: number, userId: number) {
-    const word = await this.prisma.word.findUnique({ where: { id: wordId } });
-    if (!word) throw new NotFoundException('Word not found');
-
-    await this.checkWordSetOwnership(word.wordSetId, userId);
-
-    return this.prisma.word.delete({ where: { id: wordId } });
+  remove(id: number, userId: number) {
+    return this.prisma.word.delete({ where: { id, wordSet: { userId } } });
   }
 
   async submitAnswer(
@@ -85,84 +92,86 @@ export class WordsService {
     userId: number,
     answerId?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Word" WHERE id = ${wordId} FOR UPDATE`;
-      const now = new Date();
-
-      const word = await tx.word.findUnique({
-        where: { id: wordId },
-        include: { wordSet: { select: { userId: true } } },
-      });
-      if (!word) throw new NotFoundException('Word not found');
-      if (word.wordSet.userId !== userId) throw new ForbiddenException();
-      if (answerId) {
-        const previous = await tx.reviewEvent.findUnique({
-          where: { id: answerId },
-        });
-        if (previous) {
-          if (
-            previous.userId !== userId ||
-            previous.wordId !== wordId ||
-            previous.knows !== knows
-          ) {
-            throw new ConflictException('Answer ID was already used');
-          }
-          return word;
-        }
-      }
-      await tx.reviewEvent.create({
-        data: { id: answerId, wordId, userId, knows },
-      });
-
-      let {
-        status,
-        successStreak,
-        missStreak,
-        timesSeen,
-        timesCorrect,
-        learnedAt,
-      } = word;
-
-      timesSeen += 1;
-
-      if (knows) {
-        timesCorrect += 1;
-        successStreak += 1;
-        missStreak = 0;
-
-        if (status === WordStatus.NEW) status = WordStatus.LEARNING;
-
-        if (successStreak >= this.UP && status !== WordStatus.LEARNED) {
-          status = WordStatus.LEARNED;
-          learnedAt = now;
-        }
-      } else {
-        successStreak = 0;
-        missStreak = (missStreak ?? 0) + 1;
-
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction) => {
+            const word = await transaction.word.findUnique({
+              where: { id: wordId, wordSet: { userId } },
+            });
+            if (!word) throw new NotFoundException('Word not found');
+            if (answerId) {
+              const previous = await transaction.reviewEvent.findUnique({
+                where: { id: answerId },
+              });
+              if (previous) {
+                if (
+                  previous.wordId !== wordId ||
+                  previous.userId !== userId ||
+                  previous.knows !== knows
+                ) {
+                  throw new ConflictException('Answer ID was already used');
+                }
+                return word;
+              }
+            }
+            await transaction.reviewEvent.create({
+              data: { id: answerId, wordId, userId, knows },
+            });
+            let { status, successStreak, missStreak, learnedAt } = word;
+            const now = new Date();
+            if (knows) {
+              successStreak++;
+              missStreak = 0;
+              if (status === WordStatus.NEW) status = WordStatus.LEARNING;
+              if (
+                successStreak >=
+                  this.config.getOrThrow<number>('LEARN_STREAK_THRESHOLD') &&
+                status !== WordStatus.LEARNED
+              ) {
+                status = WordStatus.LEARNED;
+                learnedAt = now;
+              }
+            } else {
+              successStreak = 0;
+              missStreak++;
+              if (
+                status === WordStatus.LEARNED &&
+                this.config.getOrThrow<string>('DOWNGRADE_ON_MISS') ===
+                  'true' &&
+                missStreak >=
+                  this.config.getOrThrow<number>('DOWNGRADE_MISS_THRESHOLD')
+              ) {
+                status = WordStatus.LEARNING;
+                learnedAt = null;
+                missStreak = 0;
+              }
+            }
+            const updated = await transaction.word.update({
+              where: { id: wordId, wordSet: { userId } },
+              data: {
+                status,
+                successStreak,
+                missStreak,
+                learnedAt,
+                lastReviewedAt: now,
+                timesSeen: { increment: 1 },
+                timesCorrect: { increment: knows ? 1 : 0 },
+              },
+            });
+            return updated;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
         if (
-          status === WordStatus.LEARNED &&
-          this.DOWN_ENABLED &&
-          missStreak >= this.DOWN
-        ) {
-          status = WordStatus.LEARNING;
-          learnedAt = null;
-          missStreak = 0;
-        }
+          !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+          error.code !== 'P2034' ||
+          attempt >= 4
+        )
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
       }
-
-      return tx.word.update({
-        where: { id: wordId },
-        data: {
-          status,
-          successStreak,
-          missStreak,
-          timesSeen,
-          timesCorrect,
-          learnedAt,
-          lastReviewedAt: now,
-        },
-      });
-    });
+    }
   }
 }

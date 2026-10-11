@@ -1,149 +1,152 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
-  BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import type { User } from '@prisma/client';
+
+const publicUser = {
+  id: true,
+  email: true,
+  name: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto) {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: createUserDto.email },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('Пользователь с таким email уже существует');
-    }
-
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(
-      createUserDto.password,
-      saltRounds,
-    );
-
-    const user = await this.prisma.user.create({
-      data: {
-        name: createUserDto.name,
-        email: createUserDto.email,
-        password: hashedPassword,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...result } = user;
-    return result;
+  private checkPasswordSize(password: string) {
+    if (Buffer.byteLength(password, 'utf8') > 72)
+      throw new BadRequestException('Password must not exceed 72 UTF-8 bytes');
   }
 
-  async findOneByEmail(email: string) {
-    return this.prisma.user.findUnique({
-      where: { email },
+  async create(dto: CreateUserDto) {
+    this.checkPasswordSize(dto.password);
+    if (await this.findOneByEmail(dto.email))
+      throw new ConflictException('Email is already registered');
+    return this.prisma.user.create({
+      data: {
+        name: dto.name,
+        email: dto.email,
+        password: await bcrypt.hash(dto.password, 10),
+      },
+      select: publicUser,
+    });
+  }
+
+  findOneByEmail(email: string) {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
     });
   }
 
   async findOneById(id: number) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
-
-    if (!user) {
-      throw new NotFoundException(`Пользователь с ID ${id} не найден`);
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...result } = user;
-    return result;
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: publicUser,
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto) {
-    if (updateUserDto.email) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { email: updateUserDto.email },
-      });
-      if (existingUser && existingUser.id !== id) {
-        throw new ConflictException('Этот email уже используется');
+  findForAuthentication(id: number) {
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async update(id: number, dto: UpdateUserDto) {
+    const user = await this.findForAuthentication(id);
+    if (!user) throw new NotFoundException('User not found');
+    const changingEmail = dto.email !== undefined && dto.email !== user.email;
+    if (changingEmail) {
+      if (
+        !user.password ||
+        !dto.currentPassword ||
+        !(await bcrypt.compare(dto.currentPassword, user.password))
+      ) {
+        throw new UnauthorizedException(
+          'Current password is required to change email',
+        );
       }
+      const existing = await this.findOneByEmail(dto.email!);
+      if (existing && existing.id !== id)
+        throw new ConflictException('Email is already registered');
     }
-
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: updateUserDto,
+    return this.prisma.user.update({
+      where: { id, tokenVersion: user.tokenVersion },
+      data: {
+        name: dto.name,
+        email: dto.email,
+        ...(changingEmail ? { tokenVersion: { increment: 1 } } : {}),
+      },
+      select: publicUser,
     });
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...result } = user;
-    return result;
   }
 
-  async changePassword(id: number, currentPass: string, newPass: string) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      throw new NotFoundException('Пользователь не найден');
+  async changePassword(
+    id: number,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    this.checkPasswordSize(newPassword);
+    const user = await this.findForAuthentication(id);
+    if (!user) throw new NotFoundException('User not found');
+    if (
+      !user.password ||
+      !(await bcrypt.compare(currentPassword, user.password))
+    ) {
+      throw new UnauthorizedException('Current password is incorrect');
     }
-
-    if (!user.password) {
-      throw new BadRequestException(
-        'Вы зарегистрировались через социальные сети и еще не установили пароль.',
-      );
-    }
-
-    const isPasswordMatch = await bcrypt.compare(currentPass, user.password);
-    if (!isPasswordMatch) {
-      throw new UnauthorizedException('Неверный текущий пароль');
-    }
-
-    const saltRounds = 10;
-    const hashedNewPassword = await bcrypt.hash(newPass, saltRounds);
-
-    await this.prisma.user.update({
-      where: { id },
-      data: { password: hashedNewPassword },
+    const password = await bcrypt.hash(newPassword, 10);
+    const updated = await this.prisma.user.updateMany({
+      where: { id, tokenVersion: user.tokenVersion },
+      data: { password, tokenVersion: { increment: 1 } },
     });
-
-    return { message: 'Пароль успешно изменен' };
+    if (!updated.count)
+      throw new ConflictException('Account changed; sign in again');
+    return { message: 'Password changed; sign in again' };
   }
 
-  findAll() {
-    return this.prisma.user.findMany({
-      select: { id: true, email: true, name: true, createdAt: true },
+  async revokeTokens(id: number, tokenVersion: number) {
+    await this.prisma.user.updateMany({
+      where: { id, tokenVersion },
+      data: { tokenVersion: { increment: 1 } },
     });
   }
 
   async remove(id: number) {
-    await this.findOneById(id);
     await this.prisma.user.delete({ where: { id } });
-    return { message: `Пользователь с ID ${id} успешно удален` };
+    return { message: 'Account deleted' };
   }
 
-  async findOneByGoogleId(googleId: string): Promise<User | null> {
-    return this.prisma.user.findUnique({
-      where: { googleId },
-    });
+  findOneByGoogleId(googleId: string) {
+    return this.prisma.user.findUnique({ where: { googleId } });
   }
 
-  async updateGoogleId(userId: number, googleId: string): Promise<User> {
+  async linkGoogle(id: number, tokenVersion: number, googleId: string) {
+    const user = await this.findForAuthentication(id);
+    if (!user || user.tokenVersion !== tokenVersion)
+      throw new UnauthorizedException('Sign in again before linking Google');
+    if (user.googleId && user.googleId !== googleId)
+      throw new ConflictException(
+        'A different Google account is already linked',
+      );
     return this.prisma.user.update({
-      where: { id: userId },
+      where: { id, tokenVersion },
       data: { googleId },
     });
   }
 
-  async createWithGoogle(data: {
-    email: string;
-    name: string;
-    googleId: string;
-  }): Promise<User> {
+  createWithGoogle(data: { email: string; name: string; googleId: string }) {
     return this.prisma.user.create({
-      data: {
-        email: data.email,
-        name: data.name,
-        googleId: data.googleId,
-      },
+      data: { email: data.email, name: data.name, googleId: data.googleId },
     });
   }
 }

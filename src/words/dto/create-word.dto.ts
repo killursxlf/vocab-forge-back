@@ -5,15 +5,18 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateWordDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(1000)
   original: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(1000)
   translation: string;
 
   @IsEnum(WordStatus)
@@ -22,5 +25,5 @@ export class CreateWordDto {
 
   @IsObject()
   @IsOptional()
-  customFields?: Record<string, any>;
+  customFields?: Record<string, unknown> | null;
 }

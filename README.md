@@ -1,98 +1,88 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Vocab Forge Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS 11 API for vocabulary sets, custom flashcards, and learning progress. Authentication uses HttpOnly JWT cookies or Google OAuth. Prisma ORM 6.19 connects to your hosted **Prisma Postgres** database; a separate PostgreSQL server is optional for local testing.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Setup
 
-## Description
+Use Node.js 22 LTS (22.12+) or Node.js 24 and npm. `package-lock.json` is the dependency source for CI and Docker.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+1. Copy `.env.example` to `.env`.
+2. Generate pooled and direct TCP connection strings for the existing database in Prisma Console. Set `DATABASE_URL` to pooled and `DIRECT_URL` to direct; both must point to the same database.
+3. Generate a JWT secret locally and save it in `JWT_SECRET`:
 
-## Project setup
+   ```sh
+   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   ```
 
-```bash
-$ npm install
+4. Install dependencies, generate the client, and migrate the intended development database:
+
+   ```sh
+   npm ci --ignore-scripts
+   npm run db:generate
+   npm run db:migrate
+   npm run start:dev
+   ```
+
+The API defaults to `http://localhost:3000`; the frontend defaults to `http://localhost:8080`. Adjust `FRONTEND_URL` and `CORS_ORIGINS` together. [.env.example](.env.example) documents Google credentials, proxy trust, auth quotas, and learning thresholds. Leave both Google credentials empty to disable Google sign-in.
+
+Your database stays on Prisma's servers. Replacing the old hosted `prisma+postgres://accelerate.prisma-data.net` URL changes the transport, not the database or its data. That connection retires on **December 1, 2026**; see the [official migration guide](https://www.prisma.io/docs/postgres/database/switch-from-accelerate). Production requires TCP URLs. Legacy URLs are temporarily accepted in development, but the SQL-based rate limiter requires TCP before authentication routes can work.
+
+Never commit `.env`, connection strings, or JWT secrets. `dist/` is generated and ignored.
+
+## API
+
+Authenticated requests need the `access_token` cookie; browsers must use `credentials: 'include'`. Mutations use JSON and an allowed frontend Origin; JSON clients without an Origin are also supported. Production cookies are HttpOnly/Secure/SameSite=None; development uses SameSite=Lax.
+
+| Endpoint                          | Behavior                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST /users/register`            | Creates an account from `name`, `email`, `password`; returns public fields.           |
+| `POST /auth/login`                | Sets a one-day authentication cookie.                                                 |
+| `GET /auth/profile`               | Returns `userId`, `email`, `name`.                                                    |
+| `GET/PATCH /users/me`             | Reads or edits the authenticated account. An email change requires `currentPassword`. |
+| `POST /users/change-password`     | Accepts `currentPassword`, `newPassword`; revokes all sessions.                       |
+| `POST /auth/logout`               | Revokes all sessions and clears the cookie; send JSON `{}`.                           |
+| `DELETE /users/me`                | Deletes the account and dependents; send JSON `{}`.                                   |
+| `GET /auth/google`                | Starts Google sign-in with signed, expiring OAuth state.                              |
+| `GET /auth/google/link`           | Requires login; explicitly links Google to the current account.                       |
+| `GET /auth/google/callback`       | Verifies state and Google email before setting a cookie.                              |
+| `GET/POST /word-sets`             | Lists owned sets or creates one.                                                      |
+| `GET/PATCH/DELETE /word-sets/:id` | Reads, edits, or deletes an owned set.                                                |
+| `POST /word-sets/:id/words`       | Creates a word in an owned set.                                                       |
+| `PATCH/DELETE /words/:id`         | Edits or deletes an owned word.                                                       |
+| `POST /words/:id/answer`          | Accepts `knows: boolean`, optional UUID `answerId`; records progress atomically.      |
+| `GET/PUT /card-settings`          | Reads or updates the user's card setup.                                               |
+| `POST /card-settings/count`       | Requires nonempty `selectedTables`, `selectedStatuses` arrays.                        |
+| `GET /card-settings/cards`        | Returns a page with selected custom front, back, and hint values.                     |
+| `GET /health/live`                | Process liveness.                                                                     |
+| `GET /health/ready`               | Database readiness, or 503 when unavailable.                                          |
+
+Public `/users` and `/users/:id` routes have been removed. Profile patches reject `password`, `googleId`, and unknown fields. Passwords must be 6–72 characters and no more than 72 UTF-8 bytes.
+
+Google login does not automatically merge accounts by email: ordinary Google sign-in returns 409 if the email belongs to an existing local account. Sign in locally first, then use `/auth/google/link`. Google-only accounts cannot change email or set a password through profile patches.
+
+Retry an answer using the same `answerId` after a network failure; reuse with different contents returns 409. Requests without an ID each count as new answers. Custom field patches merge keys; `customFields: null` clears the object. Deleting a set/account cascades through associated words and review events.
+
+### Pagination and errors
+
+Lists, set-detail words, and training cards accept `offset` (default 0, maximum 100000) and `limit` (default/maximum 100). Lists/cards keep array responses and expose `X-Next-Offset` for full pages; continue until absent, allowing a final empty page. Set details include `words`, `total`, `hasMore` and optional `search`/`status`.
+
+Table selectors accept `all` or positive IDs; statuses accept `all`, `NEW`, `LEARNING`, `LEARNED`. Invalid IDs/filters, unknown fields, and null nonnullable values return 400. JSON bodies over 64 KB return 413. Missing/inaccessible resources return 404 and database conflicts return 409. Internal errors hide database details.
+
+## Verification
+
+```sh
+npm run lint:check
+npm run typecheck
+npm test -- --runInBand
+npm run test:e2e -- --runInBand
+npm audit
+npm run build
 ```
 
-## Compile and run the project
+Unit/HTTP tests use fixtures and never connect to your real database. Integration tests require an explicitly configured local PostgreSQL 16 database ending in `_test`. Apply migrations with its `DATABASE_URL`/`DIRECT_URL`, set `TEST_DATABASE_URL` to the same database, and run `npm run test:integration`.
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
+Integration tests cover concurrent answers, duplicate IDs, custom field patches, ownership, cascades, shared quotas, and session revocation across independent Prisma clients. GitHub Actions also checks migration/schema drift, dependency advisories, and Docker startup.
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+See the [production runbook](docs/production.md) for release order, Docker images, frontend changes, connection budgets, backups, and monitoring. The runtime image runs as `node` with compiled code, a generated Linux Prisma client, and production dependencies. Run migrations separately once per release.

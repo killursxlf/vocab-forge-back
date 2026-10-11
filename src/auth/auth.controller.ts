@@ -8,114 +8,99 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
 import type { Response } from 'express';
-import { LoginDto } from '../auth/dto/login.dto';
+import { LoginDto } from './dto/login.dto';
 import { AuthService } from './auth.service';
 import type { RequestWithUser } from './interfaces/request-with-user.interface';
-import type { User } from './interfaces/user.interface';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { GoogleOAuthGuard } from './google-oauth.guard';
+import { AuthRateLimitGuard } from '../security/auth-rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Post('login')
+  @UseGuards(AuthRateLimitGuard)
   async login(
-    @Body() loginDto: LoginDto,
+    @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<Omit<User, 'password'>> {
-    const userWithoutPassword = await this.authService.validateUser(
-      loginDto.email,
-      loginDto.password,
-    );
-
-    if (!userWithoutPassword) {
-      throw new UnauthorizedException('Неверные учетные данные');
-    }
-
-    const access_token =
-      this.authService.login(userWithoutPassword).access_token;
-
-    response.cookie('access_token', access_token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
-      expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
+  ) {
+    const user = await this.auth.validateUser(dto.email, dto.password);
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+    response.cookie('access_token', this.auth.login(user).access_token, {
+      ...this.cookieOptions(),
+      maxAge: 86400000,
     });
-
-    return userWithoutPassword;
+    return this.auth.publicProfile(user);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('profile')
-  getProfile(@Req() req: RequestWithUser): User {
-    return req.user;
+  @UseGuards(JwtAuthGuard)
+  getProfile(@Req() request: RequestWithUser) {
+    return this.auth.publicProfile(request.user);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('access_token', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
-    });
-
-    return { message: 'Вы успешно вышли из системы' };
+  @UseGuards(JwtAuthGuard)
+  async logout(
+    @Req() request: RequestWithUser,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    await this.auth.logout(request.user);
+    response.clearCookie('access_token', this.cookieOptions());
+    return { message: 'Signed out on all devices' };
   }
 
   @Get('google')
-  @UseGuards(GoogleOAuthGuard)
+  @UseGuards(AuthRateLimitGuard, GoogleOAuthGuard)
   googleLogin() {}
+
+  @Get('google/link')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard, GoogleOAuthGuard)
+  googleLink() {}
 
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
-  googleCallback(@Req() req: RequestWithUser, @Res() response: Response) {
-    try {
-      const user = req.user as Omit<User, 'password'>;
+  googleCallback(@Req() request: RequestWithUser, @Res() response: Response) {
+    response.cookie(
+      'access_token',
+      this.auth.login(request.user).access_token,
+      { ...this.cookieOptions(), maxAge: 86400000 },
+    );
+    const origin = JSON.stringify(
+      this.config.getOrThrow<string>('FRONTEND_URL'),
+    ).replace(/</g, '\\u003c');
+    const nonce = randomBytes(16).toString('base64');
+    response.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; script-src 'nonce-" +
+        nonce +
+        "'; base-uri 'none'; frame-ancestors 'none'",
+    );
+    response
+      .type('html')
+      .send(
+        '<script nonce="' +
+          nonce +
+          '">const origin=' +
+          origin +
+          ';if(window.opener&&!window.opener.closed){window.opener.postMessage("google-auth-success",origin);window.close()}else{window.location.replace(origin+"/app")}</script>',
+      );
+  }
 
-      const { access_token } = this.authService.login(user);
-
-      response.cookie('access_token', access_token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        path: '/',
-        expires: new Date(Date.now() + 1000 * 60 * 60 * 24),
-      });
-
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
-
-      return response.send(`
-        <script>
-          try {
-            if (window.opener && !window.opener.closed) {
-              window.opener.postMessage('google-auth-success', '${FRONTEND_URL}');
-              window.close();
-            } else {
-              // Если opener недоступен, редиректим напрямую
-              window.location.href = '${FRONTEND_URL}/app';
-            }
-          } catch (error) {
-            console.error('Error sending message:', error);
-            window.location.href = '${FRONTEND_URL}/app';
-          }
-        </script>
-      `);
-    } catch (err) {
-      console.error(err);
-      const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
-      return response.send(`
-        <script>
-          if (window.opener && !window.opener.closed) {
-            window.opener.postMessage('google-auth-error', '${FRONTEND_URL}');
-          }
-          window.close();
-        </script>
-      `);
-    }
+  private cookieOptions() {
+    const production = this.config.get<string>('NODE_ENV') === 'production';
+    return {
+      httpOnly: true,
+      secure: production,
+      sameSite: production ? ('none' as const) : ('lax' as const),
+      path: '/',
+    };
   }
 }

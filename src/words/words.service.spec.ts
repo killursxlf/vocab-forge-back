@@ -1,114 +1,158 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
-import { WordsService } from './words.service';
+import { ConfigService } from '@nestjs/config';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma, WordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { WordsService } from './words.service';
 
-describe('WordsService answer persistence', () => {
-  const answerId = '9a652b77-446a-4b73-8fa2-1d46ab1b5842';
-  function fixture() {
-    const word = {
+describe('word ownership and progress', () => {
+  const database = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    word: {
+      findUnique: jest.fn(),
+      update: jest.fn((args: Prisma.WordUpdateArgs) =>
+        Promise.resolve(args.data),
+      ),
+    },
+    reviewEvent: {
+      findUnique: jest.fn(),
+      create: jest.fn((args: Prisma.ReviewEventCreateArgs) =>
+        Promise.resolve(args.data),
+      ),
+    },
+  };
+  const prisma = {
+    ...database,
+    $transaction: jest.fn(
+      (
+        callback: (transaction: typeof database) => unknown,
+        options?: { isolationLevel: string },
+      ) => {
+        void options;
+        return Promise.resolve(callback(database));
+      },
+    ),
+  };
+  const service = new WordsService(
+    prisma as unknown as PrismaService,
+    new ConfigService({
+      LEARN_STREAK_THRESHOLD: 3,
+      DOWNGRADE_MISS_THRESHOLD: 3,
+      DOWNGRADE_ON_MISS: 'true',
+    }),
+  );
+  beforeEach(() => {
+    database.word.findUnique.mockResolvedValue({
       id: 1,
-      wordSetId: 2,
-      wordSet: { userId: 3 },
-      status: 'NEW',
-      timesSeen: 0,
-      timesCorrect: 0,
-      successStreak: 0,
+      status: WordStatus.LEARNING,
+      successStreak: 2,
       missStreak: 0,
       learnedAt: null,
       customFields: { example: 'keep', phonetic: 'old' },
-    };
-    const tx = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: 1 }]),
-      word: {
-        findUnique: jest.fn().mockResolvedValue(word),
-        update: jest
-          .fn()
-          .mockImplementation(({ data }: { data: object }) =>
-            Promise.resolve({ ...word, ...data }),
-          ),
-      },
-      reviewEvent: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({ id: answerId }),
-      },
-    };
-    const prisma = {
-      $transaction: (callback: (client: typeof tx) => Promise<unknown>) =>
-        callback(tx),
-    };
-    return {
-      tx,
-      word,
-      service: new WordsService(prisma as unknown as PrismaService),
-    };
-  }
-
-  it('records the ID and updates statistics inside the transaction', async () => {
-    const { service, tx } = fixture();
-    const updated = await service.submitAnswer(1, true, 3, answerId);
-    expect(tx.$queryRaw).toHaveBeenCalled();
-    expect(tx.reviewEvent.create).toHaveBeenCalledWith({
-      data: { id: answerId, wordId: 1, userId: 3, knows: true },
     });
-    expect(updated).toMatchObject({
-      timesSeen: 1,
-      timesCorrect: 1,
-      successStreak: 1,
-      status: 'LEARNING',
+    database.reviewEvent.findUnique.mockResolvedValue(null);
+  });
+
+  it('applies a learned transition and stores the answer in the same serializable transaction', async () => {
+    const result = await service.submitAnswer(1, true, 2);
+    expect(result).toMatchObject({
+      status: WordStatus.LEARNED,
+      successStreak: 3,
+      timesSeen: { increment: 1 },
+      timesCorrect: { increment: 1 },
+    });
+    expect(prisma.$transaction.mock.calls[0][1]?.isolationLevel).toBe(
+      'Serializable',
+    );
+    expect(database.reviewEvent.create).toHaveBeenCalledWith({
+      data: { id: undefined, wordId: 1, userId: 2, knows: true },
     });
   });
 
-  it('acknowledges a repeated ID without incrementing statistics', async () => {
-    const { service, tx, word } = fixture();
-    tx.reviewEvent.findUnique.mockResolvedValue({
-      id: answerId,
+  it('downgrades only after the configured number of misses', async () => {
+    database.word.findUnique.mockResolvedValue({
+      id: 1,
+      status: WordStatus.LEARNED,
+      successStreak: 3,
+      missStreak: 2,
+      learnedAt: new Date(),
+    });
+    await expect(service.submitAnswer(1, false, 2)).resolves.toMatchObject({
+      status: WordStatus.LEARNING,
+      learnedAt: null,
+      missStreak: 0,
+    });
+  });
+
+  it('rejects a word outside the requesting account', async () => {
+    database.word.findUnique.mockResolvedValue(null);
+    await expect(service.submitAnswer(1, true, 2)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(database.word.update).not.toHaveBeenCalled();
+  });
+
+  it('retries serialization conflicts but stops after five attempts', async () => {
+    const error = new Prisma.PrismaClientKnownRequestError('Conflict', {
+      code: 'P2034',
+      clientVersion: '6.19.3',
+    });
+    prisma.$transaction.mockRejectedValue(error);
+    await expect(service.submitAnswer(1, true, 2)).rejects.toBe(error);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+    prisma.$transaction.mockImplementation((callback) =>
+      Promise.resolve(callback(database)),
+    );
+  });
+
+  it('scopes mutations to the owner and ignores injected relations', async () => {
+    await service.update(
+      1,
+      Object.assign({ original: 'safe' }, { wordSet: { connect: { id: 99 } } }),
+      2,
+    );
+    const args = database.word.update.mock.calls[0][0];
+    expect(args.where).toEqual({ id: 1, wordSet: { userId: 2 } });
+    expect(args.data).not.toHaveProperty('wordSet');
+  });
+
+  it('acknowledges a duplicate without changing progress', async () => {
+    database.reviewEvent.findUnique.mockResolvedValue({
       wordId: 1,
-      userId: 3,
+      userId: 2,
       knows: true,
     });
-    expect(await service.submitAnswer(1, true, 3, answerId)).toEqual(word);
-    expect(tx.reviewEvent.create).not.toHaveBeenCalled();
-    expect(tx.word.update).not.toHaveBeenCalled();
+    await service.submitAnswer(1, true, 2, 'duplicate');
+    expect(database.word.update).not.toHaveBeenCalled();
+    expect(database.reviewEvent.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an ID reused with another answer', async () => {
-    const { service, tx } = fixture();
-    tx.reviewEvent.findUnique.mockResolvedValue({
-      id: answerId,
+  it('rejects an answer ID reused with different contents', async () => {
+    database.reviewEvent.findUnique.mockResolvedValue({
       wordId: 1,
-      userId: 3,
+      userId: 2,
       knows: false,
     });
-    await expect(service.submitAnswer(1, true, 3, answerId)).rejects.toThrow(
-      ConflictException,
-    );
-    expect(tx.word.update).not.toHaveBeenCalled();
+    await expect(
+      service.submitAnswer(1, true, 2, 'duplicate'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(database.word.update).not.toHaveBeenCalled();
   });
 
-  it('checks ownership before acknowledging a duplicate', async () => {
-    const { service, tx } = fixture();
-    await expect(service.submitAnswer(1, true, 9, answerId)).rejects.toThrow(
-      ForbiddenException,
+  it('does not update progress when recording the event fails', async () => {
+    database.reviewEvent.create.mockRejectedValueOnce(
+      new Error('Database failure'),
     );
-    expect(tx.reviewEvent.create).not.toHaveBeenCalled();
-    expect(tx.word.update).not.toHaveBeenCalled();
+    await expect(service.submitAnswer(1, true, 2)).rejects.toThrow(
+      'Database failure',
+    );
+    expect(database.word.update).not.toHaveBeenCalled();
   });
 
-  it('does not update statistics when recording the event fails', async () => {
-    const { service, tx } = fixture();
-    tx.reviewEvent.create.mockRejectedValue(new Error('database failure'));
-    await expect(service.submitAnswer(1, true, 3, answerId)).rejects.toThrow(
-      'database failure',
-    );
-    expect(tx.word.update).not.toHaveBeenCalled();
-  });
-
-  it('merges a custom field patch without erasing other fields', async () => {
-    const { service, tx } = fixture();
-    await service.update(1, { customFields: { phonetic: 'new' } }, 3);
-    expect(tx.word.update).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: { customFields: { example: 'keep', phonetic: 'new' } },
+  it('merges a custom field patch without erasing unrelated values', async () => {
+    await service.update(1, { customFields: { phonetic: 'new' } }, 2);
+    expect(database.word.update.mock.calls[0][0].data.customFields).toEqual({
+      example: 'keep',
+      phonetic: 'new',
     });
   });
 });

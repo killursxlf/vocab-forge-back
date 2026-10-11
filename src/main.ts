@@ -1,20 +1,21 @@
-import { ValidationPipe } from '@nestjs/common';
+import { ConsoleLogger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import cookieParser from 'cookie-parser';
+import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { configureApp } from './configure-app';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.useGlobalPipes(new ValidationPipe());
-  app.use(cookieParser());
-  app.enableCors({
-    origin: [
-      'http://localhost:8080',
-      'https://vocab-forge-front.vercel.app',
-      'http://192.168.178.60:8080',
-    ],
-    credentials: true,
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+    logger: new ConsoleLogger({ json: true }),
   });
-  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+  configureApp(app);
+  await app.listen(
+    app.get(ConfigService).getOrThrow<number>('PORT'),
+    '0.0.0.0',
+  );
 }
-bootstrap();
+void bootstrap().catch(() => {
+  process.exitCode = 1;
+});

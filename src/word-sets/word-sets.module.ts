@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { WordsModule } from 'src/words/words.module';
+import { WordsModule } from '../words/words.module';
 import { WordSetsController } from './word-sets.controller';
 import { WordSetsService } from './word-sets.service';
 

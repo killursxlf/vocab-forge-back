@@ -1,8 +1,8 @@
 # env
 .env
 
-# node modules 
+# node modules
 node_modules/
-
+dist/
 # prisma client
 /generated/prisma

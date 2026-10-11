@@ -1,11 +1,16 @@
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class LoginDto {
-  @IsEmail({}, { message: 'Пожалуйста, введите корректный email' })
-  @IsNotEmpty({ message: 'Email не может быть пустым' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEmail()
+  @MaxLength(254)
   email: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'Пароль не может быть пустым' })
+  @MinLength(1)
+  @MaxLength(72)
   password: string;
 }

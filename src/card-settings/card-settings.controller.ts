@@ -2,144 +2,72 @@ import {
   Body,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Post,
   Put,
   Query,
   Req,
-  UseGuards
+  Res,
+  UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import type { RequestWithUser } from '../auth/interfaces/request-with-user.interface';
+import { PaginationDto } from '../common/pagination.dto';
 import { CardSettingsService } from './card-settings.service';
-
-export class UpdateCardSettingsDto {
-  frontKey?: string;
-  backKey?: string;
-  selectedStatuses?: string[];
-  hintKey?: string | null;
-  selectedTables?: string[]; 
-}
-
-class GetTrainingCardsDto {
-  frontKey: string;
-  backKey: string;
-  hintKey: string | null;
-  status: string;
-  tables: string; 
-}
-
-class CountWordsDto {
-  frontKey: string;
-  backKey: string;
-  selectedStatuses: string[];
-  hintKey: string | null;
-  selectedTables: string[];
-}
-
-interface AuthenticatedRequest extends Request {
-  user: {
-    userId: number;
-    email: string;
-  };
-}
+import { CardFiltersDto, TablesQueryDto } from './dto/card-settings.dto';
+import { UpdateCardSettingsDto } from './dto/update-card-settings.dto';
 
 @Controller('card-settings')
 @UseGuards(JwtAuthGuard)
 export class CardSettingsController {
-  constructor(private readonly cardSettingsService: CardSettingsService) {}
+  constructor(private readonly settings: CardSettingsService) {}
 
   @Get()
   async getSettings(
-    @Req() req: AuthenticatedRequest,
-    @Query('tables') tables?: string
+    @Req() request: RequestWithUser,
+    @Query() query: TablesQueryDto,
   ) {
-    try {
-      const userId = req.user.userId;
-      if (!userId) {
-        throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
-      }
-
-      const selectedTables = tables ? tables.split(',') : undefined;
-      const result = await this.cardSettingsService.getSettings(userId, selectedTables);
-
-      return {
-        data: {
-          frontKey: result.frontKey,
-          backKey: result.backKey,
-          hintKey: result.hintKey,
-          selectedStatuses: result.selectedStatuses,
-          selectedTables: result.selectedTables,
-          userColumns: result.userColumns || []
-        }
-      };
-    } catch (error) {
-      console.error('Error getting card settings:', error);
-      throw new HttpException(
-        'Failed to get card settings',
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+    return {
+      data: await this.settings.getSettings(request.user.userId, query.tables),
+    };
   }
 
   @Put()
   async updateSettings(
-    @Req() req: AuthenticatedRequest,
-    @Body() updateData: UpdateCardSettingsDto,
+    @Req() request: RequestWithUser,
+    @Body() dto: UpdateCardSettingsDto,
   ) {
-    try {
-      const userId = req.user.userId;
-      if (!userId) {
-        throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
-      }
-
-      const result = await this.cardSettingsService.updateSettings(userId, updateData);
-      
-      const settingsWithColumns = await this.cardSettingsService.getSettings(
-        userId, 
-        updateData.selectedTables
-      );
-
-      return {
-        data: {
-          frontKey: result.frontKey,
-          backKey: result.backKey,
-          hintKey: result.hintKey,
-          selectedStatuses: result.selectedStatuses,
-          selectedTables: result.selectedTables,
-          userColumns: settingsWithColumns.userColumns || []
-        }
-      };
-    } catch (error) {
-      console.error('Error updating card settings:', error);
-      throw new HttpException(
-        'Failed to update card settings',
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+    await this.settings.updateSettings(request.user.userId, dto);
+    return {
+      data: await this.settings.getSettings(
+        request.user.userId,
+        dto.selectedTables,
+      ),
+    };
   }
 
   @Post('count')
   async countWords(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: CountWordsDto,
+    @Req() request: RequestWithUser,
+    @Body() dto: CardFiltersDto,
   ) {
-    const userId = req.user.userId;
-    if (!userId) {
-      throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
-    }
-
-    const count = await this.cardSettingsService.countWords(userId, body);
-    return { data: { count } };
+    return {
+      data: { count: await this.settings.countWords(request.user.userId, dto) },
+    };
   }
 
   @Get('cards')
-  async getTrainingCards(@Req() req: AuthenticatedRequest) {
-    const userId = req.user.userId;
-    if (!userId) {
-      throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
-    }
-    
-    return this.cardSettingsService.getTrainingCards(userId);
+  async getTrainingCards(
+    @Req() request: RequestWithUser,
+    @Query() page: PaginationDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const cards = await this.settings.getTrainingCards(
+      request.user.userId,
+      page,
+    );
+    if (cards.length === page.limit)
+      response.setHeader('X-Next-Offset', page.offset + page.limit);
+    return cards;
   }
-} 
+}
