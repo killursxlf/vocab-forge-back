@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -12,7 +13,7 @@ import {
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { RequestWithUser } from '../auth/interfaces/request-with-user.interface';
-import { PaginationDto } from '../common/pagination.dto';
+import { TrainingPageDto } from './dto/training-page.dto';
 import { CardSettingsService } from './card-settings.service';
 import { CardFiltersDto, TablesQueryDto } from './dto/card-settings.dto';
 import { UpdateCardSettingsDto } from './dto/update-card-settings.dto';
@@ -59,14 +60,18 @@ export class CardSettingsController {
   @Get('cards')
   async getTrainingCards(
     @Req() request: RequestWithUser,
-    @Query() page: PaginationDto,
+    @Query() page: TrainingPageDto,
     @Res({ passthrough: true }) response: Response,
   ) {
+    if (page.afterId !== undefined && page.offset !== 0)
+      throw new BadRequestException(
+        'Do not combine a review cursor with offset',
+      );
     const cards = await this.settings.getTrainingCards(
       request.user.userId,
       page,
     );
-    if (cards.length === page.limit)
+    if (page.afterId === undefined && cards.length === page.limit)
       response.setHeader('X-Next-Offset', page.offset + page.limit);
     return cards;
   }

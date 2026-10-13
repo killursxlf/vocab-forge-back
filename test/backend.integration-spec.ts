@@ -189,6 +189,65 @@ describe('PostgreSQL migrations and concurrent writes', () => {
     ).toEqual([wordId]);
   });
 
+  it('does not skip due cards when answers reschedule the first page and its cursor row', async () => {
+    const due = new Date(Date.now() - 86400000);
+    await first.word.update({
+      where: { id: wordId },
+      data: { nextReviewAt: due },
+    });
+    await first.word.createMany({
+      data: Array.from({ length: 200 }, (_, index) => ({
+        wordSetId,
+        original: 'page-' + index,
+        translation: 'answer',
+        nextReviewAt: due,
+      })),
+    });
+    const service = new CardSettingsService(first);
+    const firstPage = await service.getTrainingCards(userId);
+    expect(firstPage).toHaveLength(100);
+    const last = firstPage[firstPage.length - 1];
+    const answeredIds = [firstPage[0].id, last.id];
+    const answers = new WordsService(second, config);
+    for (const id of answeredIds)
+      await answers.submitAnswer(id, true, userId, crypto.randomUUID());
+    const secondPage = await service.getTrainingCards(userId, {
+      offset: 0,
+      limit: 100,
+      afterId: last.id,
+      afterReviewAt: last.nextReviewAt.toISOString(),
+    });
+    expect(secondPage).toHaveLength(100);
+    const secondLast = secondPage[secondPage.length - 1];
+    const thirdPage = await service.getTrainingCards(userId, {
+      offset: 0,
+      limit: 100,
+      afterId: secondLast.id,
+      afterReviewAt: secondLast.nextReviewAt.toISOString(),
+    });
+    expect(thirdPage).toHaveLength(1);
+    const expected = await first.word.findMany({
+      where: { wordSetId, nextReviewAt: { lte: new Date() } },
+      orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+    });
+    expect(
+      [
+        ...firstPage.filter((card) => !answeredIds.includes(card.id)),
+        ...secondPage,
+        ...thirdPage,
+      ].map((card) => card.id),
+    ).toEqual(expected.map((card) => card.id));
+    expect(expected).toHaveLength(199);
+    expect(
+      await service.getTrainingCards(userId + 1000000, {
+        offset: 0,
+        limit: 100,
+        afterId: last.id,
+        afterReviewAt: last.nextReviewAt.toISOString(),
+      }),
+    ).toEqual([]);
+  });
+
   it('selects only due cards, prioritizes overdue learned words, and reports the next review', async () => {
     const now = Date.now();
     await first.word.update({

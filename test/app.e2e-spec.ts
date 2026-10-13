@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import type { Prisma } from '@prisma/client';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
@@ -20,7 +21,12 @@ describe('HTTP security boundaries', () => {
   const prisma = {
     user: { findUnique: jest.fn(), findFirst: jest.fn() },
     wordSet: { findMany: jest.fn(), findUnique: jest.fn() },
-    word: { count: jest.fn(), findFirst: jest.fn() },
+    word: {
+      count: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn<Promise<unknown[]>, [Prisma.WordFindManyArgs]>(),
+    },
+    cardSettings: { findUnique: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn(),
     $executeRaw: jest.fn().mockResolvedValue(0),
   };
@@ -174,6 +180,31 @@ describe('HTTP security boundaries', () => {
       .expect({
         data: { count: 2, total: 5, nextReviewAt: '2026-10-12T12:00:00.000Z' },
       });
+  });
+
+  it('accepts review cursors and rejects incomplete cursors or mixed offset paging', async () => {
+    prisma.word.findMany.mockResolvedValue([]);
+    await request(server)
+      .get('/card-settings/cards')
+      .query({ afterReviewAt: '2026-10-10T12:00:00.000Z', afterId: 100 })
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect([]);
+    const page = prisma.word.findMany.mock.calls[0][0];
+    expect(page.where?.wordSet).toEqual({ userId: 1 });
+    expect(page.where?.OR).toBeInstanceOf(Array);
+    expect(page.skip).toBe(0);
+    for (const query of [
+      { afterId: 100 },
+      { afterReviewAt: '2026-10-10T12:00:00.000Z' },
+      { afterReviewAt: '2026-10-10T12:00:00.000Z', afterId: 100, offset: 100 },
+    ]) {
+      await request(server)
+        .get('/card-settings/cards')
+        .query(query)
+        .set('Cookie', cookie)
+        .expect(400);
+    }
   });
 
   it('rejects malformed and oversized JSON bodies', async () => {

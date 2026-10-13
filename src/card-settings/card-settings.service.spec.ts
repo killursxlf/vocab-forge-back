@@ -55,6 +55,28 @@ describe('card settings and training pages', () => {
     );
   });
 
+  it('continues after the saved date and ID without looking up a rescheduled cursor row', async () => {
+    const afterReviewAt = '2026-10-10T12:00:00.000Z';
+    await service.getTrainingCards(2, {
+      offset: 0,
+      limit: 100,
+      afterId: 100,
+      afterReviewAt,
+    });
+    expect(prisma.word.findMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        wordSet: { userId: 2 },
+        nextReviewAt: { lte: new Date() },
+        OR: [
+          { nextReviewAt: { gt: new Date(afterReviewAt) } },
+          { nextReviewAt: new Date(afterReviewAt), id: { gt: 100 } },
+        ],
+      },
+      skip: 0,
+      take: 100,
+    });
+  });
+
   it('preserves custom sides when no hint is selected', async () => {
     prisma.cardSettings.findUnique.mockResolvedValue({
       frontKey: 'definition',

@@ -74,6 +74,8 @@ Migration `20261011150000_spaced_repetition` makes existing words due once witho
 
 ### Pagination and errors
 
+Training clients should page by the returned last cards `nextReviewAt` and `id`: send them as `afterReviewAt` (UTC ISO timestamp with milliseconds) and `afterId` on the next request. This remains valid if that card is rescheduled or deleted between requests. Both cursor fields are required together; do not combine them with a nonzero offset. Continue until a page contains fewer than `limit` cards.
+
 Lists, set-detail words, and training cards accept `offset` (default 0, maximum 100000) and `limit` (default/maximum 100). Lists/cards keep array responses and expose `X-Next-Offset` for full pages; continue until absent, allowing a final empty page. Set details include `words`, `total`, `hasMore` and optional `search`/`status`.
 
 Table selectors accept `all` or positive IDs; statuses accept `all`, `NEW`, `LEARNING`, `LEARNED`. Invalid IDs/filters, unknown fields, and null nonnullable values return 400. JSON bodies over 64 KB return 413. Missing/inaccessible resources return 404 and database conflicts return 409. Internal errors hide database details.
