@@ -51,8 +51,8 @@ Authenticated requests need the `access_token` cookie; browsers must use `creden
 | `PATCH/DELETE /words/:id`         | Edits or deletes an owned word.                                                       |
 | `POST /words/:id/answer`          | Accepts `knows: boolean`, optional UUID `answerId`; records progress atomically.      |
 | `GET/PUT /card-settings`          | Reads or updates the user's card setup.                                               |
-| `POST /card-settings/count`       | Requires nonempty `selectedTables`, `selectedStatuses` arrays.                        |
-| `GET /card-settings/cards`        | Returns a page with selected custom front, back, and hint values.                     |
+| `POST /card-settings/count`       | Returns due count, matching total, and earliest future review for selected filters.   |
+| `GET /card-settings/cards`        | Returns due cards in review order with selected front, back, and hint values.          |
 | `GET /health/live`                | Process liveness.                                                                     |
 | `GET /health/ready`               | Database readiness, or 503 when unavailable.                                          |
 
@@ -62,7 +62,19 @@ Google login does not automatically merge accounts by email: ordinary Google sig
 
 Retry an answer using the same `answerId` after a network failure; reuse with different contents returns 409. Requests without an ID each count as new answers. Custom field patches merge keys; `customFields: null` clears the object. Deleting a set/account cascades through associated words and review events.
 
+### Spaced repetition
+
+Training uses a two-answer Leitner schedule. Each word stores `reviewBox` (0–6) and `nextReviewAt`. A successful answer advances the box and schedules the next review after 1, 3, 7, 14, 30, or 90 days. Box 6 stays at 90 days. A miss returns the word to box 0 for a review in 10 minutes. Intervals use elapsed UTC time; the frontend displays dates in the user's locale.
+
+`GET /card-settings/cards` returns only due cards (`nextReviewAt <= now`), ordered by the oldest due date and then ID. The selected sets, statuses and filled card sides still apply. Learned words remain eligible for later review when their status is selected.
+
+`POST /card-settings/count` returns `{ data: { count, total, nextReviewAt } }`: due cards, all matching words, and the earliest future review (or `null`). Answers persist scheduling, progress and history in the same transaction. Retrying the same answer ID does not advance the schedule again. Explicit status changes reset the box and make the word due immediately; ordinary text/custom-field edits preserve its schedule.
+
+Migration `20261011150000_spaced_repetition` makes existing words due once without changing their counters or history. Deploy that migration and the backend before the frontend that reads the extended count response. This is a fixed-box schedule, not Anki's FSRS model or a personalized retention prediction.
+
 ### Pagination and errors
+
+Training clients should page by the returned last cards `nextReviewAt` and `id`: send them as `afterReviewAt` (UTC ISO timestamp with milliseconds) and `afterId` on the next request. This remains valid if that card is rescheduled or deleted between requests. Both cursor fields are required together; do not combine them with a nonzero offset. Continue until a page contains fewer than `limit` cards.
 
 Lists, set-detail words, and training cards accept `offset` (default 0, maximum 100000) and `limit` (default/maximum 100). Lists/cards keep array responses and expose `X-Next-Offset` for full pages; continue until absent, allowing a final empty page. Set details include `words`, `total`, `hasMore` and optional `search`/`status`.
 

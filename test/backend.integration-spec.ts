@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
 import { ConfigService } from '@nestjs/config';
 import type { ExecutionContext } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -88,6 +89,47 @@ describe('PostgreSQL migrations and concurrent writes', () => {
     expect(await first.reviewEvent.count({ where: { wordId } })).toBe(4);
   });
 
+  it('backfills an old word without erasing progress when adding the schedule', async () => {
+    const migration = readFileSync(
+      'prisma/migrations/20261011150000_spaced_repetition/migration.sql',
+      'utf8',
+    );
+    await first.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('CREATE SCHEMA srs_migration_test');
+      await tx.$executeRawUnsafe('SET LOCAL search_path TO srs_migration_test');
+      await tx.$executeRawUnsafe(`CREATE TABLE "Word" (
+        id INTEGER PRIMARY KEY, "wordSetId" INTEGER, status TEXT,
+        "timesSeen" INTEGER, "timesCorrect" INTEGER, "lastReviewedAt" TIMESTAMP(3)
+      )`);
+      await tx.$executeRawUnsafe(`INSERT INTO "Word" VALUES
+        (1, 1, 'LEARNED', 12, 8, '2026-10-01T12:00:00')`);
+      for (const statement of migration
+        .split(';')
+        .filter((part) => part.trim())) {
+        await tx.$executeRawUnsafe(statement);
+      }
+      const [word] = await tx.$queryRaw<
+        {
+          status: string;
+          timesSeen: number;
+          timesCorrect: number;
+          lastReviewedAt: Date;
+          reviewBox: number;
+          nextReviewAt: Date;
+        }[]
+      >`SELECT * FROM "Word" WHERE id = 1`;
+      expect(word).toMatchObject({
+        status: 'LEARNED',
+        timesSeen: 12,
+        timesCorrect: 8,
+        reviewBox: 0,
+        lastReviewedAt: new Date('2026-10-01T12:00:00Z'),
+      });
+      expect(word.nextReviewAt.getTime()).toBeLessThanOrEqual(Date.now());
+      await tx.$executeRawUnsafe('DROP SCHEMA srs_migration_test CASCADE');
+    });
+  });
+
   it('deduplicates concurrent retries by answer ID', async () => {
     const services = [
       new WordsService(first, config),
@@ -106,6 +148,163 @@ describe('PostgreSQL migrations and concurrent writes', () => {
     await expect(
       services[0].submitAnswer(wordId, false, userId, answerId),
     ).rejects.toThrow('Answer ID was already used');
+  });
+
+  it('persists the review schedule atomically and never reschedules a retried answer', async () => {
+    const service = new WordsService(first, config);
+    const answerId = crypto.randomUUID();
+    const known = await service.submitAnswer(wordId, true, userId, answerId);
+    expect(known.reviewBox).toBe(1);
+    expect(known.nextReviewAt.getTime() - known.lastReviewedAt!.getTime()).toBe(
+      86400000,
+    );
+    expect(
+      await new CardSettingsService(first).getTrainingCards(userId),
+    ).toEqual([]);
+
+    const missed = await service.submitAnswer(
+      wordId,
+      false,
+      userId,
+      crypto.randomUUID(),
+    );
+    expect(missed.reviewBox).toBe(0);
+    expect(
+      missed.nextReviewAt.getTime() - missed.lastReviewedAt!.getTime(),
+    ).toBe(600000);
+    const retried = await service.submitAnswer(wordId, true, userId, answerId);
+    expect(retried).toMatchObject({
+      timesSeen: 2,
+      timesCorrect: 1,
+      reviewBox: 0,
+      nextReviewAt: missed.nextReviewAt,
+    });
+    expect(await first.reviewEvent.count({ where: { wordId } })).toBe(2);
+
+    await service.update(wordId, { status: 'NEW' }, userId);
+    expect(
+      (await new CardSettingsService(first).getTrainingCards(userId)).map(
+        (card) => card.id,
+      ),
+    ).toEqual([wordId]);
+  });
+
+  it('does not skip due cards when answers reschedule the first page and its cursor row', async () => {
+    const due = new Date(Date.now() - 86400000);
+    await first.word.update({
+      where: { id: wordId },
+      data: { nextReviewAt: due },
+    });
+    await first.word.createMany({
+      data: Array.from({ length: 200 }, (_, index) => ({
+        wordSetId,
+        original: 'page-' + index,
+        translation: 'answer',
+        nextReviewAt: due,
+      })),
+    });
+    const service = new CardSettingsService(first);
+    const firstPage = await service.getTrainingCards(userId);
+    expect(firstPage).toHaveLength(100);
+    const last = firstPage[firstPage.length - 1];
+    const answeredIds = [firstPage[0].id, last.id];
+    const answers = new WordsService(second, config);
+    for (const id of answeredIds)
+      await answers.submitAnswer(id, true, userId, crypto.randomUUID());
+    const secondPage = await service.getTrainingCards(userId, {
+      offset: 0,
+      limit: 100,
+      afterId: last.id,
+      afterReviewAt: last.nextReviewAt.toISOString(),
+    });
+    expect(secondPage).toHaveLength(100);
+    const secondLast = secondPage[secondPage.length - 1];
+    const thirdPage = await service.getTrainingCards(userId, {
+      offset: 0,
+      limit: 100,
+      afterId: secondLast.id,
+      afterReviewAt: secondLast.nextReviewAt.toISOString(),
+    });
+    expect(thirdPage).toHaveLength(1);
+    const expected = await first.word.findMany({
+      where: { wordSetId, nextReviewAt: { lte: new Date() } },
+      orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+    });
+    expect(
+      [
+        ...firstPage.filter((card) => !answeredIds.includes(card.id)),
+        ...secondPage,
+        ...thirdPage,
+      ].map((card) => card.id),
+    ).toEqual(expected.map((card) => card.id));
+    expect(expected).toHaveLength(199);
+    expect(
+      await service.getTrainingCards(userId + 1000000, {
+        offset: 0,
+        limit: 100,
+        afterId: last.id,
+        afterReviewAt: last.nextReviewAt.toISOString(),
+      }),
+    ).toEqual([]);
+  });
+
+  it('selects only due cards, prioritizes overdue learned words, and reports the next review', async () => {
+    const now = Date.now();
+    await first.word.update({
+      where: { id: wordId },
+      data: { nextReviewAt: new Date(now - 60000) },
+    });
+    const overdue = await first.word.create({
+      data: {
+        wordSetId,
+        original: 'overdue',
+        translation: 'review',
+        status: 'LEARNED',
+        reviewBox: 3,
+        nextReviewAt: new Date(now - 86400000),
+      },
+    });
+    const future = await first.word.create({
+      data: {
+        wordSetId,
+        original: 'later',
+        translation: 'future',
+        reviewBox: 2,
+        nextReviewAt: new Date(now + 86400000),
+      },
+    });
+    const service = new CardSettingsService(first);
+    const filters = {
+      frontKey: 'original',
+      backKey: 'translation',
+      selectedStatuses: ['all'],
+      selectedTables: [String(wordSetId)],
+    };
+    await service.updateSettings(userId, filters);
+    expect(
+      (await service.getTrainingCards(userId)).map((card) => card.id),
+    ).toEqual([overdue.id, wordId]);
+    expect(
+      (await service.getTrainingCards(userId, { offset: 1, limit: 1 })).map(
+        (card) => card.id,
+      ),
+    ).toEqual([wordId]);
+    expect(await service.getReviewSummary(userId, filters)).toEqual({
+      count: 2,
+      total: 3,
+      nextReviewAt: future.nextReviewAt,
+    });
+    expect(await service.getReviewSummary(userId + 1000000, filters)).toEqual({
+      count: 0,
+      total: 0,
+      nextReviewAt: null,
+    });
+    expect(
+      await service.getReviewSummary(userId, {
+        ...filters,
+        selectedStatuses: ['NEW'],
+      }),
+    ).toEqual({ count: 1, total: 2, nextReviewAt: future.nextReviewAt });
   });
 
   it('preserves independently patched custom fields under concurrency', async () => {

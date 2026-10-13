@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, WordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaginationDto } from '../common/pagination.dto';
+import { TrainingPageDto } from './dto/training-page.dto';
 import { CardFiltersDto } from './dto/card-settings.dto';
 import { UpdateCardSettingsDto } from './dto/update-card-settings.dto';
 
@@ -147,33 +147,73 @@ export class CardSettingsService {
 
   countWords(userId: number, filters: CardFiltersDto) {
     return this.prisma.word.count({
-      where: wordFilter(
-        userId,
-        filters.selectedTables,
-        filters.selectedStatuses,
-        filters.frontKey,
-        filters.backKey,
-      ),
+      where: {
+        ...wordFilter(
+          userId,
+          filters.selectedTables,
+          filters.selectedStatuses,
+          filters.frontKey,
+          filters.backKey,
+        ),
+        nextReviewAt: { lte: new Date() },
+      },
     });
+  }
+
+  async getReviewSummary(userId: number, filters: CardFiltersDto) {
+    const now = new Date();
+    const where = wordFilter(
+      userId,
+      filters.selectedTables,
+      filters.selectedStatuses,
+      filters.frontKey,
+      filters.backKey,
+    );
+    const [count, total, next] = await Promise.all([
+      this.prisma.word.count({
+        where: { ...where, nextReviewAt: { lte: now } },
+      }),
+      this.prisma.word.count({ where }),
+      this.prisma.word.findFirst({
+        where: { ...where, nextReviewAt: { gt: now } },
+        orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+        select: { nextReviewAt: true },
+      }),
+    ]);
+    return { count, total, nextReviewAt: next?.nextReviewAt ?? null };
   }
 
   async getTrainingCards(
     userId: number,
-    page: PaginationDto = new PaginationDto(),
+    page: TrainingPageDto = new TrainingPageDto(),
   ) {
     const settings = await this.prisma.cardSettings.findUnique({
       where: { userId },
     });
     const words = await this.prisma.word.findMany({
-      where: wordFilter(
-        userId,
-        settings?.selectedTables ?? ['all'],
-        settings?.selectedStatuses ?? ['all'],
-        settings?.frontKey ?? 'original',
-        settings?.backKey ?? 'translation',
-      ),
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      skip: page.offset,
+      where: {
+        ...wordFilter(
+          userId,
+          settings?.selectedTables ?? ['all'],
+          settings?.selectedStatuses ?? ['all'],
+          settings?.frontKey ?? 'original',
+          settings?.backKey ?? 'translation',
+        ),
+        nextReviewAt: { lte: new Date() },
+        ...(page.afterId !== undefined
+          ? {
+              OR: [
+                { nextReviewAt: { gt: new Date(page.afterReviewAt!) } },
+                {
+                  nextReviewAt: new Date(page.afterReviewAt!),
+                  id: { gt: page.afterId },
+                },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ nextReviewAt: 'asc' }, { id: 'asc' }],
+      skip: page.afterId !== undefined ? 0 : page.offset,
       take: page.limit,
     });
     const keys = new Set(

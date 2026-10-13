@@ -3,6 +3,7 @@ import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { UpdateWordDto } from '../words/dto/update-word.dto';
 import { CardFiltersDto } from '../card-settings/dto/card-settings.dto';
 import { UpdateCardSettingsDto } from '../card-settings/dto/update-card-settings.dto';
+import { TrainingPageDto } from '../card-settings/dto/training-page.dto';
 import { WordSetQueryDto } from '../word-sets/dto/word-set-query.dto';
 
 const pipe = new ValidationPipe({
@@ -57,6 +58,41 @@ describe('request validation', () => {
       ).resolves.toMatchObject({ selectedTables: [], selectedStatuses: [] });
     }
   });
+  it('requires a complete, valid review cursor while preserving offset paging', async () => {
+    const afterReviewAt = '2026-10-10T12:00:00.000Z';
+    await expect(
+      pipe.transform(
+        { afterReviewAt, afterId: '100' },
+        { type: 'query', metatype: TrainingPageDto },
+      ),
+    ).resolves.toMatchObject({
+      afterReviewAt,
+      afterId: 100,
+      offset: 0,
+      limit: 100,
+    });
+    await expect(
+      pipe.transform(
+        { offset: '100' },
+        { type: 'query', metatype: TrainingPageDto },
+      ),
+    ).resolves.toMatchObject({ offset: 100 });
+    for (const query of [
+      { afterReviewAt },
+      { afterId: '100' },
+      { afterReviewAt: 'bad date', afterId: '1' },
+      { afterReviewAt: '2026-02-30T12:00:00.000Z', afterId: '1' },
+      { afterReviewAt, afterId: '0' },
+      { afterReviewAt, afterId: '2147483648' },
+      { afterReviewAt, afterId: '1.5' },
+      { afterReviewAt: null, afterId: '1' },
+    ]) {
+      await expect(
+        pipe.transform(query, { type: 'query', metatype: TrainingPageDto }),
+      ).rejects.toThrow();
+    }
+  });
+
   it('rejects invalid paging and enum values', async () => {
     for (const query of [
       { limit: '100000' },
